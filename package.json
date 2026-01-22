@@ -1,6 +1,6 @@
 {
   "name": "carto",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "Carto is a desktop app for inspecting Zenoh traffic.",
   "author": "Derek Diaz <derek.diaz@proton.me>",
@@ -48,7 +48,7 @@
   "build": {
     "appId": "com.carto.app",
     "productName": "Carto",
-    "icon": "build/icon.png",
+    "icon": "src/shared/icon.png",
     "files": [
       "out/**",
       "package.json"
