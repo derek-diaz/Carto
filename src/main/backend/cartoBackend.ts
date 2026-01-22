@@ -13,7 +13,6 @@ import { RingBuffer } from './ringBuffer';
 import { RecentKeysIndex } from './recentKeys';
 import type { DriverMessage, ZenohDriver } from '../zenoh/driver';
 import { RemoteApiWsDriver } from '../zenoh/remoteApiWsDriver';
-import { ChildProcessDriver } from '../zenoh/childProcessDriver';
 
 const DEFAULT_BUFFER_SIZE = 200;
 
@@ -39,18 +38,9 @@ export class CartoBackend {
   async connect(params: ConnectParams): Promise<void> {
     await this.disconnect();
 
-    let driver: ZenohDriver;
+    const driver: ZenohDriver = new RemoteApiWsDriver();
     let capabilities: Capabilities | null = null;
-    const { endpoint, configJson, driver: requestedDriver } = params;
-    const useTap = requestedDriver
-      ? requestedDriver === 'tap'
-      : process.env.CARTO_DRIVER === 'tap';
-
-    if (useTap) {
-      driver = new ChildProcessDriver();
-    } else {
-      driver = new RemoteApiWsDriver();
-    }
+    const { endpoint, configJson } = params;
 
     try {
       capabilities = await driver.connect({

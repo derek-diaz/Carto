@@ -3,8 +3,6 @@ import { defineConfig } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 
 const mainEntry = path.resolve(__dirname, 'src/main/main.ts');
-const tapEntry = path.resolve(__dirname, 'src/main/zenoh/carto-tap.ts');
-
 export default defineConfig({
   main: {
     entry: mainEntry,
@@ -21,8 +19,7 @@ export default defineConfig({
         rollupOptions: {
           external: ['@eclipse-zenoh/zenoh-ts'],
           input: {
-            main: mainEntry,
-            'carto-tap': tapEntry
+            main: mainEntry
           }
         }
       }
