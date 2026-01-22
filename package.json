@@ -48,6 +48,7 @@
   "build": {
     "appId": "com.carto.app",
     "productName": "Carto",
+    "icon": "build/icon.png",
     "files": [
       "out/**",
       "package.json"
@@ -70,16 +71,16 @@
       ],
       "maintainer": "Derek Diaz <derek.diaz@proton.me>",
       "category": "Utility",
-      "icon": "build/icon.png"
+      "icon": "src/shared/icon.png"
     },
     "win": {
       "target": "nsis",
-      "icon": "build/icon.png"
+      "icon": "src/shared/icon.ico"
     },
     "mac": {
       "target": "dmg",
       "category": "public.app-category.developer-tools",
-      "icon": "build/icon.png"
+      "icon": "src/shared/icon.icns"
     },
     "publish": [
       {
