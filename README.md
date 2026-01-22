@@ -8,6 +8,10 @@
 
 Carto is a desktop app for inspecting Zenoh traffic. It connects to a Zenoh router, subscribes to key expressions, and streams messages with live stats and decoding helpers.
 
+## Installation
+
+All the installation files for Windows/Mac/Linux are available on the [releases](https://github.com/derek-diaz/Carto/releases) page.
+
 ## Development
 
 Make sure you have Node.js 24+ installed.
