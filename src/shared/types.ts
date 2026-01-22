@@ -40,7 +40,6 @@ export type ConnectParams = {
   endpoint: string;
   mode?: 'client';
   configJson?: string;
-  driver?: 'remote' | 'tap';
 };
 
 export type SubscribeParams = {

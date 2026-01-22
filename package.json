@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Carto is a desktop app for inspecting Zenoh traffic.",
-  "author": "Derek Diaz Correa <derek.diaz@proton.me>",
+  "author": "Derek Diaz <derek.diaz@proton.me>",
   "main": "out/main/main.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -33,7 +33,7 @@
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
     "@vitejs/plugin-react": "^4.3.0",
-    "electron": "^29.4.6",
+    "electron": "^39.3.0",
     "electron-builder": "^24.13.3",
     "electron-vite": "^2.3.0",
     "eslint": "^8.57.1",
@@ -68,7 +68,7 @@
         "AppImage",
         "deb"
       ],
-      "maintainer": "Derek Diaz Correa <derek.diaz@proton.me>",
+      "maintainer": "Derek Diaz <derek.diaz@proton.me>",
       "category": "Utility",
       "icon": "build/icon.png"
     },
@@ -82,7 +82,10 @@
       "icon": "build/icon.png"
     },
     "publish": [
-      "github"
+      {
+        "provider": "github",
+        "releaseType": "release"
+      }
     ]
   }
 }

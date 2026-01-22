@@ -5,20 +5,19 @@ const DEFAULT_ENDPOINT = 'ws://127.0.0.1:10000/';
 
 type ConnectPanelProps = {
   status: ConnectionStatus;
-  onConnect: (endpoint: string, configJson?: string, driver?: 'remote' | 'tap') => Promise<void>;
+  onConnect: (endpoint: string, configJson?: string) => Promise<void>;
   onDisconnect: () => Promise<void>;
 };
 
 const ConnectPanel = ({ status, onConnect, onDisconnect }: ConnectPanelProps) => {
   const [endpoint, setEndpoint] = useState(DEFAULT_ENDPOINT);
   const [configJson, setConfigJson] = useState('');
-  const [useMockTap, setUseMockTap] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const handleConnect = async () => {
     setBusy(true);
     try {
-      await onConnect(endpoint, configJson || undefined, useMockTap ? 'tap' : 'remote');
+      await onConnect(endpoint, configJson || undefined);
     } catch {
       // errors are surfaced via status events
     } finally {
@@ -58,15 +57,6 @@ const ConnectPanel = ({ status, onConnect, onDisconnect }: ConnectPanelProps) =>
       <label className="field">
         <span>Mode</span>
         <input type="text" value="client" disabled />
-      </label>
-      <label className="field field--inline">
-        <input
-          type="checkbox"
-          checked={useMockTap}
-          onChange={(event) => setUseMockTap(event.target.checked)}
-          disabled={busy || status.connected}
-        />
-        <span>Use mock tap (no router needed)</span>
       </label>
       <label className="field">
         <span>Config JSON (optional)</span>

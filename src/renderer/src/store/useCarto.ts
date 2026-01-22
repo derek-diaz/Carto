@@ -73,12 +73,9 @@ export const useCarto = () => {
     };
   }, [status.connected, recentKeysFilter]);
 
-  const connect = useCallback(
-    async (endpoint: string, configJson?: string, driver?: 'remote' | 'tap') => {
-      await window.carto.connect({ endpoint, mode: 'client', configJson, driver });
-    },
-    []
-  );
+  const connect = useCallback(async (endpoint: string, configJson?: string) => {
+    await window.carto.connect({ endpoint, mode: 'client', configJson });
+  }, []);
 
   const disconnect = useCallback(async () => {
     await window.carto.disconnect();
