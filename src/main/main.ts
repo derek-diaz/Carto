@@ -1,6 +1,6 @@
 import { app, BrowserWindow, shell } from 'electron';
 import fs from 'node:fs';
-import path from 'path';
+import path from 'node:path';
 import { CartoBackend } from './backend/cartoBackend';
 import { registerIpc } from './ipc';
 

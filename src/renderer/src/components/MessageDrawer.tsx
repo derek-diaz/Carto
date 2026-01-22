@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { CartoMessage } from '@shared/types';
 import { formatBytes, formatTime } from '../utils/format';
+import { IconClose } from './Icons';
 
 type MessageDrawerProps = {
   message: CartoMessage | null;
@@ -35,6 +36,9 @@ const MessageDrawer = ({ message, onClose }: MessageDrawerProps) => {
           </div>
         </div>
         <button className="button button--ghost" onClick={onClose}>
+          <span className="button__icon" aria-hidden="true">
+            <IconClose />
+          </span>
           Close
         </button>
       </div>

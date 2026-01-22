@@ -10,7 +10,7 @@ type ZenohSession = {
   close?: () => Promise<void> | void;
   info?: () => Promise<unknown> | unknown;
   getInfo?: () => Promise<unknown> | unknown;
-  declareSubscriber?: (keyexpr: string, handler: (sample: unknown) => void) => Promise<unknown>;
+  declareSubscriber?: (keyexpr: string, handler: { handler: (sample: unknown) => void }) => Promise<unknown>;
   subscribe?: (keyexpr: string, handler: (sample: unknown) => void) => Promise<unknown>;
   createSubscriber?: (keyexpr: string, handler: (sample: unknown) => void) => Promise<unknown>;
   put?: (keyexpr: string, payload: Uint8Array, options?: { encoding?: string }) => Promise<void>;
@@ -43,7 +43,7 @@ export class RemoteApiWsDriver implements ZenohDriver {
       this.session = await open(config);
     } catch (error) {
       const details = error instanceof Error ? error.message : String(error);
-      const hint = buildConnectionHint(details);
+      const hint = this.buildConnectionHint(details);
       throw new Error(
         `Failed to connect to ${options.endpoint}. Ensure zenoh-plugin-remote-api is enabled and the WS endpoint is reachable. Details: ${details}${
           hint ? ` Hint: ${hint}` : ''
@@ -146,7 +146,8 @@ export class RemoteApiWsDriver implements ZenohDriver {
     if (typeof (globalThis as { WebSocket?: unknown }).WebSocket === 'function') {
       return;
     }
-    (globalThis as { WebSocket?: typeof NodeWebSocket }).WebSocket = NodeWebSocket;
+    const globalWithWebSocket = globalThis as unknown as { WebSocket?: typeof NodeWebSocket };
+    globalWithWebSocket.WebSocket = NodeWebSocket;
   }
 
   private buildConfig(endpoint: string, configJson?: string): Record<string, unknown> {
@@ -187,13 +188,40 @@ export class RemoteApiWsDriver implements ZenohDriver {
 
     if (info && typeof info === 'object') {
       const record = info as Record<string, unknown>;
-      const zenohVersion =
-        (record.zenoh_version as string) ||
-        (record.version as string) ||
-        ((record.zenoh as Record<string, unknown> | undefined)?.version as string | undefined);
-      const remoteApiVersion =
-        (record.remote_api_version as string) ||
-        (record.remoteApiVersion as string);
+      const asString = (value: unknown): string | undefined => {
+        if (typeof value === 'string' && value.trim()) return value;
+        if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+        return undefined;
+      };
+      const fromRecord = (keys: string[]): string | undefined => {
+        for (const key of keys) {
+          const value = asString(record[key]);
+          if (value) return value;
+        }
+        return undefined;
+      };
+      const nestedString = (parent: unknown, keys: string[]): string | undefined => {
+        if (!parent || typeof parent !== 'object') return undefined;
+        const nested = parent as Record<string, unknown>;
+        for (const key of keys) {
+          const value = asString(nested[key]);
+          if (value) return value;
+        }
+        return undefined;
+      };
+
+      let zenohVersion =
+        fromRecord(['zenoh_version', 'zenohVersion', 'zenoh-version']) ||
+        nestedString(record.zenoh, ['version', 'build_version', 'buildVersion']) ||
+        nestedString(record.zenoh_version, ['version']);
+      let remoteApiVersion =
+        fromRecord(['remote_api_version', 'remoteApiVersion', 'remote-api-version']) ||
+        nestedString(record.remote_api, ['version', 'api_version']) ||
+        nestedString(record.remoteApi, ['version', 'apiVersion']);
+      const topLevelVersion = fromRecord(['version', 'api_version', 'apiVersion']);
+      if (!remoteApiVersion && topLevelVersion && !zenohVersion) {
+        remoteApiVersion = topLevelVersion;
+      }
 
       if (zenohVersion) {
         capabilities.zenoh = zenohVersion;
@@ -242,25 +270,38 @@ export class RemoteApiWsDriver implements ZenohDriver {
     if (!sample || typeof sample !== 'object') return undefined;
     const record = sample as Record<string, unknown>;
     const ts = this.resolveCandidate(sample, record.ts ?? record.timestamp);
-    if (typeof ts === 'number') return ts;
-    if (typeof ts === 'string') {
-      const parsed = Date.parse(ts);
+    return this.parseTimestamp(ts);
+  }
+
+  private parseTimestamp(value: unknown): number | undefined {
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      const parsed = Date.parse(value);
       return Number.isNaN(parsed) ? undefined : parsed;
     }
-    if (ts && typeof ts === 'object') {
-      const tsRecord = ts as Record<string, unknown>;
-      const getMs = tsRecord.getMsSinceUnixEpoch;
-      if (typeof getMs === 'function') {
-        const value = (getMs as () => number).call(ts);
-        return Number.isFinite(value) ? value : undefined;
-      }
-      const asDate = tsRecord.asDate;
-      if (typeof asDate === 'function') {
-        const value = (asDate as () => Date).call(ts);
-        return Number.isFinite(value.getTime()) ? value.getTime() : undefined;
-      }
+    if (value && typeof value === 'object') {
+      const record = value as Record<string, unknown>;
+      const ms = this.callNumberMethod(record, 'getMsSinceUnixEpoch');
+      if (ms !== undefined) return ms;
+      return this.callDateMethod(record, 'asDate');
     }
     return undefined;
+  }
+
+  private callNumberMethod(record: Record<string, unknown>, key: string): number | undefined {
+    const method = record[key];
+    if (typeof method !== 'function') return undefined;
+    const value = (method as () => number).call(record);
+    return Number.isFinite(value) ? value : undefined;
+  }
+
+  private callDateMethod(record: Record<string, unknown>, key: string): number | undefined {
+    const method = record[key];
+    if (typeof method !== 'function') return undefined;
+    const value = (method as () => Date).call(record);
+    if (!(value instanceof Date)) return undefined;
+    const ms = value.getTime();
+    return Number.isFinite(ms) ? ms : undefined;
   }
 
   private resolveCandidate(sample: unknown, candidate: unknown): unknown {
