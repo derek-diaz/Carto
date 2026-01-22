@@ -17,15 +17,19 @@ export const useCarto = () => {
   const [selectedSubId, setSelectedSubId] = useState<string | null>(null);
   const [recentKeys, setRecentKeys] = useState<RecentKeyStats[]>([]);
   const [recentKeysFilter, setRecentKeysFilter] = useState('');
+  const [lastEndpoint, setLastEndpoint] = useState('');
 
   const subsRef = useRef<Subscription[]>([]);
   useEffect(() => {
     subsRef.current = subscriptions;
   }, [subscriptions]);
 
+  const getCarto = () => (globalThis as unknown as Window).carto;
+
   useEffect(() => {
-    if (!window.carto) return;
-    return window.carto.onStatus((nextStatus) => {
+    const carto = getCarto();
+    if (!carto) return;
+    return carto.onStatus((nextStatus) => {
       setStatus(nextStatus);
       if (!nextStatus.connected) {
         setSubscriptions([]);
@@ -36,8 +40,9 @@ export const useCarto = () => {
   }, []);
 
   useEffect(() => {
-    if (!window.carto) return;
-    return window.carto.onMessage(({ subscriptionId, msg }) => {
+    const carto = getCarto();
+    if (!carto) return;
+    return carto.onMessage(({ subscriptionId, msg }) => {
       setMessagesBySub((prev) => {
         const current = prev[subscriptionId] ?? [];
         const bufferSize =
@@ -50,7 +55,8 @@ export const useCarto = () => {
   }, []);
 
   useEffect(() => {
-    if (!window.carto || !status.connected) {
+    const carto = getCarto();
+    if (!carto || !status.connected) {
       setRecentKeys([]);
       return;
     }
@@ -58,7 +64,7 @@ export const useCarto = () => {
     let mounted = true;
     const fetchKeys = async () => {
       try {
-        const list = await window.carto.getRecentKeys({ filter: recentKeysFilter });
+        const list = await carto.getRecentKeys({ filter: recentKeysFilter });
         if (mounted) setRecentKeys(list);
       } catch {
         // ignore polling errors
@@ -74,15 +80,24 @@ export const useCarto = () => {
   }, [status.connected, recentKeysFilter]);
 
   const connect = useCallback(async (endpoint: string, configJson?: string) => {
-    await window.carto.connect({ endpoint, mode: 'client', configJson });
+    const carto = getCarto();
+    if (!carto) return;
+    await carto.connect({ endpoint, mode: 'client', configJson });
+    setLastEndpoint(endpoint);
   }, []);
 
   const disconnect = useCallback(async () => {
-    await window.carto.disconnect();
+    const carto = getCarto();
+    if (!carto) return;
+    await carto.disconnect();
   }, []);
 
   const subscribe = useCallback(async (keyexpr: string, bufferSize?: number) => {
-    const subscriptionId = await window.carto.subscribe({ keyexpr, bufferSize });
+    const carto = getCarto();
+    if (!carto) {
+      throw new Error('Carto API is unavailable.');
+    }
+    const subscriptionId = await carto.subscribe({ keyexpr, bufferSize });
     const entry: Subscription = {
       id: subscriptionId,
       keyexpr,
@@ -95,7 +110,9 @@ export const useCarto = () => {
   }, []);
 
   const unsubscribe = useCallback(async (subscriptionId: string) => {
-    await window.carto.unsubscribe({ subscriptionId });
+    const carto = getCarto();
+    if (!carto) return;
+    await carto.unsubscribe({ subscriptionId });
     setSubscriptions((prev) => {
       const next = prev.filter((sub) => sub.id !== subscriptionId);
       setSelectedSubId((current) => {
@@ -112,19 +129,25 @@ export const useCarto = () => {
   }, []);
 
   const setPaused = useCallback(async (subscriptionId: string, paused: boolean) => {
-    await window.carto.pause({ subscriptionId, paused });
+    const carto = getCarto();
+    if (!carto) return;
+    await carto.pause({ subscriptionId, paused });
     setSubscriptions((prev) =>
       prev.map((sub) => (sub.id === subscriptionId ? { ...sub, paused } : sub))
     );
   }, []);
 
   const clearBuffer = useCallback(async (subscriptionId: string) => {
-    await window.carto.clearBuffer({ subscriptionId });
+    const carto = getCarto();
+    if (!carto) return;
+    await carto.clearBuffer({ subscriptionId });
     setMessagesBySub((prev) => ({ ...prev, [subscriptionId]: [] }));
   }, []);
 
   const publish = useCallback(async (keyexpr: string, payload: string, encoding: PublishEncoding) => {
-    await window.carto.publish({ keyexpr, payload, encoding });
+    const carto = getCarto();
+    if (!carto) return;
+    await carto.publish({ keyexpr, payload, encoding });
   }, []);
 
   const selectedMessages = useMemo(() => {
@@ -134,6 +157,7 @@ export const useCarto = () => {
 
   return {
     status,
+    lastEndpoint,
     subscriptions,
     selectedSubId,
     setSelectedSubId,

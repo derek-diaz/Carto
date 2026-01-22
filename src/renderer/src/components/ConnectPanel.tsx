@@ -1,18 +1,25 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ConnectionStatus } from '@shared/types';
+import { IconLinkOff, IconPlug } from './Icons';
 
 const DEFAULT_ENDPOINT = 'ws://127.0.0.1:10000/';
 
 type ConnectPanelProps = {
   status: ConnectionStatus;
+  defaultEndpoint?: string;
   onConnect: (endpoint: string, configJson?: string) => Promise<void>;
   onDisconnect: () => Promise<void>;
 };
 
-const ConnectPanel = ({ status, onConnect, onDisconnect }: ConnectPanelProps) => {
-  const [endpoint, setEndpoint] = useState(DEFAULT_ENDPOINT);
+const ConnectPanel = ({ status, defaultEndpoint, onConnect, onDisconnect }: ConnectPanelProps) => {
+  const [endpoint, setEndpoint] = useState(defaultEndpoint ?? DEFAULT_ENDPOINT);
   const [configJson, setConfigJson] = useState('');
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!defaultEndpoint) return;
+    setEndpoint((current) => (current === DEFAULT_ENDPOINT || !current.trim() ? defaultEndpoint : current));
+  }, [defaultEndpoint]);
 
   const handleConnect = async () => {
     setBusy(true);
@@ -71,35 +78,21 @@ const ConnectPanel = ({ status, onConnect, onDisconnect }: ConnectPanelProps) =>
       <div className="panel__actions">
         {status.connected ? (
           <button className="button button--ghost" onClick={handleDisconnect} disabled={busy}>
+            <span className="button__icon" aria-hidden="true">
+              <IconLinkOff />
+            </span>
             Disconnect
           </button>
         ) : (
           <button className="button" onClick={handleConnect} disabled={busy || !endpoint.trim()}>
+            <span className="button__icon" aria-hidden="true">
+              <IconPlug />
+            </span>
             Connect
           </button>
         )}
       </div>
       {status.error ? <div className="panel__error">{status.error}</div> : null}
-      {status.capabilities ? (
-        <div className="panel__capabilities">
-          <div className="meta">
-            <span className="meta__label">Driver</span>
-            <span>{status.capabilities.driver}</span>
-          </div>
-          <div className="meta">
-            <span className="meta__label">Zenoh</span>
-            <span>{status.capabilities.zenoh ?? 'unknown'}</span>
-          </div>
-          <div className="meta">
-            <span className="meta__label">Remote API</span>
-            <span>{status.capabilities.remoteApi ?? 'unknown'}</span>
-          </div>
-          <div className="meta">
-            <span className="meta__label">Features</span>
-            <span>{status.capabilities.features.join(', ')}</span>
-          </div>
-        </div>
-      ) : null}
     </section>
   );
 };

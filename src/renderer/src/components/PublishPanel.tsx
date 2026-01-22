@@ -1,19 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PublishEncoding } from '@shared/types';
+import { IconPublish } from './Icons';
 
-const DEFAULT_KEYEXPR = 'demo/publish';
-const DEFAULT_JSON = '{\n  "message": "hello from Carto"\n}';
+export const DEFAULT_PUBLISH_KEYEXPR = 'demo/publish';
+export const DEFAULT_PUBLISH_JSON = '{\n  "message": "hello from Carto"\n}';
+
+export type PublishDraft = {
+  keyexpr: string;
+  encoding: PublishEncoding;
+  payload: string;
+};
 
 type PublishPanelProps = {
   connected: boolean;
   publishSupport: 'supported' | 'unknown' | 'unsupported';
+  draft: PublishDraft;
+  onDraftChange: (next: PublishDraft) => void;
   onPublish: (keyexpr: string, payload: string, encoding: PublishEncoding) => Promise<void>;
 };
 
-const PublishPanel = ({ connected, publishSupport, onPublish }: PublishPanelProps) => {
-  const [keyexpr, setKeyexpr] = useState(DEFAULT_KEYEXPR);
-  const [encoding, setEncoding] = useState<PublishEncoding>('json');
-  const [payload, setPayload] = useState(DEFAULT_JSON);
+const PublishPanel = ({ connected, publishSupport, draft, onDraftChange, onPublish }: PublishPanelProps) => {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ type: 'ok' | 'error'; message: string } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -34,7 +40,7 @@ const PublishPanel = ({ connected, publishSupport, onPublish }: PublishPanelProp
     setNotice(null);
     setBusy(true);
     try {
-      await onPublish(keyexpr.trim(), payload, encoding);
+      await onPublish(draft.keyexpr.trim(), draft.payload, draft.encoding);
       setNotice({ type: 'ok', message: 'Sent.' });
       timerRef.current = setTimeout(() => setNotice(null), 2000);
     } catch (error) {
@@ -46,10 +52,10 @@ const PublishPanel = ({ connected, publishSupport, onPublish }: PublishPanelProp
   };
 
   const renderHelper = () => {
-    if (encoding === 'base64') {
+    if (draft.encoding === 'base64') {
       return 'Payload should be base64-encoded bytes.';
     }
-    if (encoding === 'json') {
+    if (draft.encoding === 'json') {
       return 'Payload must be valid JSON.';
     }
     return 'Payload will be sent as UTF-8 text.';
@@ -67,8 +73,8 @@ const PublishPanel = ({ connected, publishSupport, onPublish }: PublishPanelProp
         <span>Key expression</span>
         <input
           type="text"
-          value={keyexpr}
-          onChange={(event) => setKeyexpr(event.target.value)}
+          value={draft.keyexpr}
+          onChange={(event) => onDraftChange({ ...draft, keyexpr: event.target.value })}
           placeholder="demo/publish"
           disabled={!connected || busy}
         />
@@ -77,10 +83,11 @@ const PublishPanel = ({ connected, publishSupport, onPublish }: PublishPanelProp
         <span>Encoding</span>
         <div className="segmented">
           <button
-            className={`segmented__button ${encoding === 'json' ? 'segmented__button--active' : ''}`}
+            className={`segmented__button ${draft.encoding === 'json' ? 'segmented__button--active' : ''}`}
             onClick={() => {
-              setEncoding('json');
-              if (!payload.trim()) setPayload(DEFAULT_JSON);
+              const next: PublishDraft = { ...draft, encoding: 'json' };
+              if (!draft.payload.trim()) next.payload = DEFAULT_PUBLISH_JSON;
+              onDraftChange(next);
             }}
             type="button"
             disabled={!connected || busy}
@@ -88,16 +95,16 @@ const PublishPanel = ({ connected, publishSupport, onPublish }: PublishPanelProp
             JSON
           </button>
           <button
-            className={`segmented__button ${encoding === 'text' ? 'segmented__button--active' : ''}`}
-            onClick={() => setEncoding('text')}
+            className={`segmented__button ${draft.encoding === 'text' ? 'segmented__button--active' : ''}`}
+            onClick={() => onDraftChange({ ...draft, encoding: 'text' })}
             type="button"
             disabled={!connected || busy}
           >
             Text
           </button>
           <button
-            className={`segmented__button ${encoding === 'base64' ? 'segmented__button--active' : ''}`}
-            onClick={() => setEncoding('base64')}
+            className={`segmented__button ${draft.encoding === 'base64' ? 'segmented__button--active' : ''}`}
+            onClick={() => onDraftChange({ ...draft, encoding: 'base64' })}
             type="button"
             disabled={!connected || busy}
           >
@@ -109,10 +116,10 @@ const PublishPanel = ({ connected, publishSupport, onPublish }: PublishPanelProp
       <label className="field">
         <span>Payload</span>
         <textarea
-          value={payload}
-          onChange={(event) => setPayload(event.target.value)}
+          value={draft.payload}
+          onChange={(event) => onDraftChange({ ...draft, payload: event.target.value })}
           rows={6}
-          placeholder={encoding === 'base64' ? 'aGVsbG8=' : 'message'}
+          placeholder={draft.encoding === 'base64' ? 'aGVsbG8=' : 'message'}
           disabled={!connected || busy}
         />
       </label>
@@ -120,8 +127,11 @@ const PublishPanel = ({ connected, publishSupport, onPublish }: PublishPanelProp
         <button
           className="button"
           onClick={handlePublish}
-          disabled={!connected || busy || !keyexpr.trim()}
+          disabled={!connected || busy || !draft.keyexpr.trim()}
         >
+          <span className="button__icon" aria-hidden="true">
+            <IconPublish />
+          </span>
           Send message
         </button>
       </div>

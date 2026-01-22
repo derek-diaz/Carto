@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Subscription } from '../store/useCarto';
+import { IconPause, IconPlay, IconPlus, IconStop, IconTrash } from './Icons';
 
 const DEFAULT_KEYEXPR = 'demo/**';
 
@@ -73,6 +74,9 @@ const SubscribePanel = ({
           onClick={handleSubscribe}
           disabled={!connected || busy || !keyexpr.trim()}
         >
+          <span className="button__icon" aria-hidden="true">
+            <IconPlus />
+          </span>
           Start
         </button>
       </div>
@@ -99,6 +103,9 @@ const SubscribePanel = ({
                     void onPause(sub.id, !sub.paused).catch(() => {});
                   }}
                 >
+                  <span className="button__icon" aria-hidden="true">
+                    {sub.paused ? <IconPlay /> : <IconPause />}
+                  </span>
                   {sub.paused ? 'Resume' : 'Pause'}
                 </button>
                 <button
@@ -108,6 +115,9 @@ const SubscribePanel = ({
                     void onClear(sub.id).catch(() => {});
                   }}
                 >
+                  <span className="button__icon" aria-hidden="true">
+                    <IconTrash />
+                  </span>
                   Clear
                 </button>
                 <button
@@ -117,6 +127,9 @@ const SubscribePanel = ({
                     void onUnsubscribe(sub.id).catch(() => {});
                   }}
                 >
+                  <span className="button__icon" aria-hidden="true">
+                    <IconStop />
+                  </span>
                   Stop
                 </button>
               </div>
