@@ -16,6 +16,7 @@ export const useCarto = () => {
   const [messagesBySub, setMessagesBySub] = useState<Record<string, CartoMessage[]>>({});
   const [selectedSubId, setSelectedSubId] = useState<string | null>(null);
   const [recentKeys, setRecentKeys] = useState<RecentKeyStats[]>([]);
+  const [selectedRecentKeys, setSelectedRecentKeys] = useState<RecentKeyStats[]>([]);
   const [recentKeysFilter, setRecentKeysFilter] = useState('');
   const [lastEndpoint, setLastEndpoint] = useState('');
 
@@ -23,6 +24,10 @@ export const useCarto = () => {
   useEffect(() => {
     subsRef.current = subscriptions;
   }, [subscriptions]);
+
+  useEffect(() => {
+    setSelectedRecentKeys([]);
+  }, [selectedSubId]);
 
   const getCarto = () => (globalThis as unknown as Window).carto;
 
@@ -35,6 +40,8 @@ export const useCarto = () => {
         setSubscriptions([]);
         setMessagesBySub({});
         setSelectedSubId(null);
+        setRecentKeys([]);
+        setSelectedRecentKeys([]);
       }
     });
   }, []);
@@ -78,6 +85,34 @@ export const useCarto = () => {
       clearInterval(timer);
     };
   }, [status.connected, recentKeysFilter]);
+
+  useEffect(() => {
+    const carto = getCarto();
+    if (!carto || !status.connected || !selectedSubId) {
+      setSelectedRecentKeys([]);
+      return;
+    }
+
+    let mounted = true;
+    const fetchKeys = async () => {
+      try {
+        const list = await carto.getRecentKeys({
+          filter: recentKeysFilter,
+          subscriptionId: selectedSubId
+        });
+        if (mounted) setSelectedRecentKeys(list);
+      } catch {
+        // ignore polling errors
+      }
+    };
+
+    fetchKeys();
+    const timer = setInterval(fetchKeys, 1000);
+    return () => {
+      mounted = false;
+      clearInterval(timer);
+    };
+  }, [status.connected, recentKeysFilter, selectedSubId]);
 
   const connect = useCallback(async (endpoint: string, configJson?: string) => {
     const carto = getCarto();
@@ -162,6 +197,7 @@ export const useCarto = () => {
     selectedSubId,
     setSelectedSubId,
     recentKeys,
+    selectedRecentKeys,
     recentKeysFilter,
     setRecentKeysFilter,
     selectedMessages,

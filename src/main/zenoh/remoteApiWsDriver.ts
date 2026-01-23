@@ -93,8 +93,11 @@ export class RemoteApiWsDriver implements ZenohDriver {
   async unsubscribe(subscriptionId: string): Promise<void> {
     const handle = this.subscriptions.get(subscriptionId);
     if (!handle) return;
-    await handle.close();
-    this.subscriptions.delete(subscriptionId);
+    try {
+      await handle.close();
+    } finally {
+      this.subscriptions.delete(subscriptionId);
+    }
   }
 
   async publish(options: PublishOptions): Promise<void> {
@@ -333,21 +336,33 @@ export class RemoteApiWsDriver implements ZenohDriver {
   private async closeAllSubscriptions(): Promise<void> {
     const handles = [...this.subscriptions.values()];
     this.subscriptions.clear();
-    await Promise.all(handles.map((handle) => handle.close()));
+    const results = await Promise.allSettled(handles.map((handle) => handle.close()));
+    for (const result of results) {
+      if (result.status === 'rejected' && !isRemoteApiTimeout(result.reason)) {
+        throw result.reason;
+      }
+    }
   }
 
   private async closeSubscription(subscription: unknown): Promise<void> {
     const record = subscription as Record<string, unknown>;
-    if (typeof record.undeclare === 'function') {
-      await (record.undeclare as () => Promise<void>)();
-      return;
-    }
-    if (typeof record.close === 'function') {
-      await (record.close as () => Promise<void>)();
-      return;
-    }
-    if (typeof record.unsubscribe === 'function') {
-      await (record.unsubscribe as () => Promise<void>)();
+    try {
+      if (typeof record.undeclare === 'function') {
+        await (record.undeclare as () => Promise<void>)();
+        return;
+      }
+      if (typeof record.close === 'function') {
+        await (record.close as () => Promise<void>)();
+        return;
+      }
+      if (typeof record.unsubscribe === 'function') {
+        await (record.unsubscribe as () => Promise<void>)();
+      }
+    } catch (error) {
+      if (isRemoteApiTimeout(error)) {
+        return;
+      }
+      throw error;
     }
   }
 
@@ -390,4 +405,12 @@ function toUint8Array(payload: unknown): Uint8Array {
     }
   }
   return new Uint8Array();
+}
+
+const REMOTE_API_TIMEOUT_RE = /remote api request timeout/i;
+
+function isRemoteApiTimeout(error: unknown): boolean {
+  if (!error) return false;
+  const message = error instanceof Error ? error.message : String(error);
+  return REMOTE_API_TIMEOUT_RE.test(message);
 }

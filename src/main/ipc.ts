@@ -32,7 +32,7 @@ export const registerIpc = (backend: CartoBackend): void => {
   });
 
   ipcMain.handle('carto.getRecentKeys', async (_event, params: GetRecentKeysParams) => {
-    return backend.getRecentKeys(params?.filter);
+    return backend.getRecentKeys(params?.filter, params?.subscriptionId);
   });
 
   ipcMain.handle('carto.clearBuffer', async (_event, params: ClearBufferParams) => {
