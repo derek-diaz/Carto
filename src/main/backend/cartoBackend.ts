@@ -9,6 +9,7 @@ import type {
   PublishParams,
   RecentKeyStats
 } from '../../shared/types';
+import { getKeyexprError } from '../../shared/keyexpr';
 import { RingBuffer } from './ringBuffer';
 import { RecentKeysIndex } from './recentKeys';
 import type { DriverMessage, ZenohDriver } from '../zenoh/driver';
@@ -22,6 +23,7 @@ type SubscriptionState = {
   paused: boolean;
   bufferSize: number;
   buffer: RingBuffer<CartoMessage>;
+  recentKeys: RecentKeysIndex;
 };
 
 export class CartoBackend {
@@ -65,11 +67,19 @@ export class CartoBackend {
 
   async disconnect(): Promise<void> {
     for (const subscriptionId of [...this.subscriptions.keys()]) {
-      await this.unsubscribe(subscriptionId);
+      try {
+        await this.unsubscribe(subscriptionId);
+      } catch (error) {
+        this.logDriverError('unsubscribe', error);
+      }
     }
 
     if (this.driver) {
-      await this.driver.disconnect();
+      try {
+        await this.driver.disconnect();
+      } catch (error) {
+        this.logDriverError('disconnect', error);
+      }
     }
 
     this.driver = null;
@@ -83,21 +93,28 @@ export class CartoBackend {
       throw new Error('Not connected to Zenoh.');
     }
 
+    const trimmedKeyexpr = keyexpr.trim();
+    const keyexprError = getKeyexprError(trimmedKeyexpr);
+    if (keyexprError) {
+      throw new Error(keyexprError);
+    }
+
     const subscriptionId = randomUUID();
     const size = bufferSize ?? DEFAULT_BUFFER_SIZE;
     const state: SubscriptionState = {
       id: subscriptionId,
-      keyexpr,
+      keyexpr: trimmedKeyexpr,
       paused: false,
       bufferSize: size,
-      buffer: new RingBuffer<CartoMessage>(size)
+      buffer: new RingBuffer<CartoMessage>(size),
+      recentKeys: new RecentKeysIndex()
     };
     this.subscriptions.set(subscriptionId, state);
 
     try {
       await this.driver.subscribe({
         subscriptionId,
-        keyexpr,
+        keyexpr: trimmedKeyexpr,
         onMessage: (msg) => this.handleMessage(subscriptionId, msg)
       });
     } catch (error) {
@@ -109,10 +126,19 @@ export class CartoBackend {
   }
 
   async unsubscribe(subscriptionId: string): Promise<void> {
-    if (this.driver) {
-      await this.driver.unsubscribe(subscriptionId);
+    if (!this.subscriptions.has(subscriptionId)) return;
+    try {
+      if (this.driver) {
+        await this.driver.unsubscribe(subscriptionId);
+      }
+    } catch (error) {
+      if (!isRemoteApiTimeout(error)) {
+        throw error;
+      }
+      this.logDriverError('unsubscribe', error);
+    } finally {
+      this.subscriptions.delete(subscriptionId);
     }
-    this.subscriptions.delete(subscriptionId);
   }
 
   async pause(subscriptionId: string, paused: boolean): Promise<void> {
@@ -135,12 +161,23 @@ export class CartoBackend {
       throw new Error('Not connected to Zenoh.');
     }
 
-    const { keyexpr, payload, encoding } = params;
+    const trimmedKeyexpr = params.keyexpr.trim();
+    const keyexprError = getKeyexprError(trimmedKeyexpr);
+    if (keyexprError) {
+      throw new Error(keyexprError);
+    }
+
+    const { payload, encoding } = params;
     const { bytes, encodingHint } = encodePublishPayload(payload, encoding);
-    await this.driver.publish({ keyexpr, payload: bytes, encoding: encodingHint });
+    await this.driver.publish({ keyexpr: trimmedKeyexpr, payload: bytes, encoding: encodingHint });
   }
 
-  getRecentKeys(filter?: string): RecentKeyStats[] {
+  getRecentKeys(filter?: string, subscriptionId?: string): RecentKeyStats[] {
+    if (subscriptionId) {
+      const state = this.subscriptions.get(subscriptionId);
+      if (!state) return [];
+      return state.recentKeys.list(filter);
+    }
     return this.recentKeys.list(filter);
   }
 
@@ -162,6 +199,7 @@ export class CartoBackend {
     };
 
     state.buffer.push(cartoMsg);
+    state.recentKeys.update(cartoMsg.key, cartoMsg.sizeBytes, cartoMsg.ts);
     this.recentKeys.update(cartoMsg.key, cartoMsg.sizeBytes, cartoMsg.ts);
 
     if (!state.paused) {
@@ -171,6 +209,11 @@ export class CartoBackend {
 
   private emitStatus(status: ConnectionStatus): void {
     this.webContents?.send('carto.status', status);
+  }
+
+  private logDriverError(action: string, error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[carto] ${action} failed: ${message}`);
   }
 }
 
@@ -259,4 +302,12 @@ function encodePublishPayload(
   }
 
   return { bytes: textEncoder.encode(raw), encodingHint: 'text/plain' };
+}
+
+const REMOTE_API_TIMEOUT_RE = /remote api request timeout/i;
+
+function isRemoteApiTimeout(error: unknown): boolean {
+  if (!error) return false;
+  const message = error instanceof Error ? error.message : String(error);
+  return REMOTE_API_TIMEOUT_RE.test(message);
 }

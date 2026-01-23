@@ -165,3 +165,9 @@ export const IconSearch = (props: SVGProps<SVGSVGElement>) => (
     <path d="M20 20l-3.5-3.5" />
   </Icon>
 );
+
+export const IconChevronDown = (props: SVGProps<SVGSVGElement>) => (
+  <Icon {...props}>
+    <path d="M6 9l6 6 6-6" />
+  </Icon>
+);

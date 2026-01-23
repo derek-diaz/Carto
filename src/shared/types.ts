@@ -58,6 +58,7 @@ export type UnsubscribeParams = {
 
 export type GetRecentKeysParams = {
   filter?: string;
+  subscriptionId?: string;
 };
 
 export type ClearBufferParams = {

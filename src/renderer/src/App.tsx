@@ -6,12 +6,14 @@ import {
   IconClock,
   IconConnection,
   IconCopy,
+  IconClose,
   IconHash,
   IconLinkOff,
   IconMonitor,
   IconMoon,
   IconPause,
   IconPlay,
+  IconPlus,
   IconPublish,
   IconReplay,
   IconSun,
@@ -42,6 +44,7 @@ const App = () => {
     selectedSubId,
     setSelectedSubId,
     recentKeys,
+    selectedRecentKeys,
     recentKeysFilter,
     setRecentKeysFilter,
     selectedMessages,
@@ -66,6 +69,7 @@ const App = () => {
     type: 'ok' | 'error';
     message: string;
   } | null>(null);
+  const [showSubscribe, setShowSubscribe] = useState(false);
 
   useEffect(() => {
     setSelectedMessage(null);
@@ -75,11 +79,12 @@ const App = () => {
   const streamTitle = selectedSub ? `Stream - ${selectedSub.keyexpr}` : 'Stream';
   const subscriptionCount = subscriptions.length;
   const bufferedCount = selectedMessages.length;
-  const keyCount = recentKeys.length;
+  const activeKeys = selectedSubId ? selectedRecentKeys : recentKeys;
   const [view, setView] = useState<'monitor' | 'publish' | 'connection'>(
     status.connected ? 'monitor' : 'connection'
   );
   const [monitorTab, setMonitorTab] = useState<'stream' | 'keys'>('stream');
+  const keyCount = activeKeys.length;
 
   useEffect(() => {
     if (!status.connected) {
@@ -88,6 +93,12 @@ const App = () => {
     }
     setView((current) => (current === 'connection' ? 'monitor' : current));
   }, [status.connected]);
+
+  useEffect(() => {
+    if (subscriptions.length === 0) {
+      setShowSubscribe(false);
+    }
+  }, [subscriptions.length]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -170,6 +181,15 @@ const App = () => {
       setLastPublish({ keyexpr, payload, encoding });
     },
     [publish]
+  );
+
+  const handleSubscribe = useCallback(
+    async (keyexpr: string, bufferSize?: number) => {
+      const subscriptionId = await subscribe(keyexpr, bufferSize);
+      setShowSubscribe(false);
+      return subscriptionId;
+    },
+    [subscribe]
   );
 
   const handleTogglePause = useCallback(async () => {
@@ -354,31 +374,6 @@ const App = () => {
                 <h1>{viewTitle}</h1>
                 <p>{viewDescription}</p>
               </div>
-              <div className="app__meta">
-                <div className="meta-chip" title={endpointTitle}>
-                  <span className="meta-chip__label">
-                    {status.connected ? 'Endpoint' : 'Last endpoint'}
-                  </span>
-                  <span className="meta-chip__value">{endpointLabel}</span>
-                  <button
-                    className="icon-button meta-chip__action"
-                    onClick={handleCopyEndpoint}
-                    disabled={!lastEndpoint || !canCopyEndpoint}
-                    type="button"
-                  >
-                    <span className="icon-button__icon" aria-hidden="true">
-                      <IconCopy />
-                    </span>
-                    <span>{copied ? 'Copied' : 'Copy'}</span>
-                  </button>
-                </div>
-                {view === 'monitor' && selectedSub ? (
-                  <div className="meta-chip" title={selectedSub.keyexpr}>
-                    <span className="meta-chip__label">Stream</span>
-                    <span className="meta-chip__value">{selectedSub.keyexpr}</span>
-                  </div>
-                ) : null}
-              </div>
             </div>
             <div className="app__header-right">
               <div className="app__stats">
@@ -398,6 +393,24 @@ const App = () => {
               <div className={`status ${status.connected ? 'status--ok' : 'status--idle'}`}>
                 <span className={`dot ${status.connected ? 'dot--ok' : 'dot--idle'}`} />
                 <span>{status.connected ? 'Live' : 'Idle'}</span>
+              </div>
+              <div className="header-endpoint" title={endpointTitle}>
+                <span className="header-endpoint__label">
+                  {status.connected ? 'Endpoint' : 'Last endpoint'}
+                </span>
+                <span className="header-endpoint__value">{endpointLabel}</span>
+                <button
+                  className="icon-button icon-button--compact icon-button--ghost"
+                  onClick={handleCopyEndpoint}
+                  disabled={!lastEndpoint || !canCopyEndpoint}
+                  type="button"
+                  title={copied ? 'Copied' : 'Copy endpoint'}
+                  aria-label="Copy endpoint"
+                >
+                  <span className="icon-button__icon" aria-hidden="true">
+                    <IconCopy />
+                  </span>
+                </button>
               </div>
               <div className="app__actions">
                 {view === 'monitor' && selectedSub ? (
@@ -502,69 +515,146 @@ const App = () => {
 
           <div className="app__body">
             {view === 'monitor' ? (
-              <div className="app__content">
-                <aside className="sidebar">
+              subscriptions.length === 0 ? (
+                <div className="app__page app__page--center">
                   <SubscribePanel
                     connected={status.connected}
                     subscriptions={subscriptions}
                     selectedSubId={selectedSubId}
-                    onSubscribe={subscribe}
+                    onSubscribe={handleSubscribe}
                     onUnsubscribe={unsubscribe}
                     onPause={setPaused}
                     onClear={clearBuffer}
                     onSelect={setSelectedSubId}
                   />
-                </aside>
+                </div>
+              ) : (
+                <div className="app__content app__content--single">
+                  <main className="main main--tabs">
+                    <div className="monitor-tabs">
+                      <div className="monitor-tabs__scroll">
+                        <div className="tabs tabs--subscriptions" role="tablist" aria-label="Subscriptions">
+                          {subscriptions.map((sub) => {
+                            const isActive = selectedSubId === sub.id;
+                            return (
+                              <div
+                                key={sub.id}
+                                className={`tab-pill ${isActive ? 'tab-pill--active' : ''}`}
+                              >
+                                <button
+                                  className="tab-pill__select"
+                                  onClick={() => setSelectedSubId(sub.id)}
+                                  type="button"
+                                  title={sub.keyexpr}
+                                  role="tab"
+                                  aria-selected={isActive}
+                                >
+                                  <span className="tabs__label">{sub.keyexpr}</span>
+                                  {sub.paused ? <span className="tabs__status">Paused</span> : null}
+                                </button>
+                                <button
+                                  className="tab-pill__close"
+                                  onClick={() => {
+                                    void unsubscribe(sub.id).catch(() => {});
+                                  }}
+                                  type="button"
+                                  title={`Close ${sub.keyexpr}`}
+                                  aria-label={`Close ${sub.keyexpr}`}
+                                >
+                                  <span className="tab-pill__icon" aria-hidden="true">
+                                    <IconClose />
+                                  </span>
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <button
+                        className="button button--ghost monitor-tabs__add"
+                        onClick={() => setShowSubscribe(true)}
+                        type="button"
+                        title="Add subscription"
+                      >
+                        <span className="button__icon" aria-hidden="true">
+                          <IconPlus />
+                        </span>
+                        Add subscription
+                      </button>
+                    </div>
 
-                <main className="main main--tabs">
-                  <div className="tabs">
-                    <button
-                      className={`tabs__button ${monitorTab === 'stream' ? 'tabs__button--active' : ''}`}
-                      onClick={() => setMonitorTab('stream')}
-                      type="button"
+                    {showSubscribe ? (
+                      <div className="modal" role="dialog" aria-modal="true" aria-label="Add subscription">
+                        <div className="modal__backdrop" onClick={() => setShowSubscribe(false)} />
+                        <div className="modal__content">
+                          <SubscribePanel
+                            connected={status.connected}
+                            subscriptions={subscriptions}
+                            selectedSubId={selectedSubId}
+                            onSubscribe={handleSubscribe}
+                            onUnsubscribe={unsubscribe}
+                            onPause={setPaused}
+                            onClear={clearBuffer}
+                            onSelect={setSelectedSubId}
+                            onClose={() => setShowSubscribe(false)}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="tabs">
+                      <button
+                        className={`tabs__button ${
+                          monitorTab === 'stream' ? 'tabs__button--active' : ''
+                        }`}
+                        onClick={() => setMonitorTab('stream')}
+                        type="button"
+                      >
+                        <span className="tabs__icon" aria-hidden="true">
+                          <IconMonitor />
+                        </span>
+                        Stream
+                        <span className="tabs__badge">{selectedMessages.length}</span>
+                      </button>
+                      <button
+                        className={`tabs__button ${
+                          monitorTab === 'keys' ? 'tabs__button--active' : ''
+                        }`}
+                        onClick={() => setMonitorTab('keys')}
+                        type="button"
+                      >
+                        <span className="tabs__icon" aria-hidden="true">
+                          <IconHash />
+                        </span>
+                        Keys
+                        <span className="tabs__badge">{selectedRecentKeys.length}</span>
+                      </button>
+                    </div>
+                    <div
+                      className={`monitor-panel ${
+                        monitorTab === 'stream' ? 'monitor-panel--active' : ''
+                      }`}
                     >
-                      <span className="tabs__icon" aria-hidden="true">
-                        <IconMonitor />
-                      </span>
-                      Stream
-                      <span className="tabs__badge">{selectedMessages.length}</span>
-                    </button>
-                    <button
-                      className={`tabs__button ${monitorTab === 'keys' ? 'tabs__button--active' : ''}`}
-                      onClick={() => setMonitorTab('keys')}
-                      type="button"
+                      <StreamView
+                        title={streamTitle}
+                        messages={selectedMessages}
+                        onSelectMessage={setSelectedMessage}
+                      />
+                    </div>
+                    <div
+                      className={`monitor-panel ${
+                        monitorTab === 'keys' ? 'monitor-panel--active' : ''
+                      }`}
                     >
-                      <span className="tabs__icon" aria-hidden="true">
-                        <IconHash />
-                      </span>
-                      Keys
-                      <span className="tabs__badge">{recentKeys.length}</span>
-                    </button>
-                  </div>
-                  <div
-                    className={`monitor-panel ${
-                      monitorTab === 'stream' ? 'monitor-panel--active' : ''
-                    }`}
-                  >
-                    <StreamView
-                      title={streamTitle}
-                      messages={selectedMessages}
-                      onSelectMessage={setSelectedMessage}
-                    />
-                  </div>
-                  <div
-                    className={`monitor-panel ${
-                      monitorTab === 'keys' ? 'monitor-panel--active' : ''
-                    }`}
-                  >
-                    <KeyExplorer
-                      keys={recentKeys}
-                      filter={recentKeysFilter}
-                      onFilterChange={setRecentKeysFilter}
-                    />
-                  </div>
-                </main>
-              </div>
+                      <KeyExplorer
+                        keys={selectedRecentKeys}
+                        filter={recentKeysFilter}
+                        onFilterChange={setRecentKeysFilter}
+                      />
+                    </div>
+                  </main>
+                </div>
+              )
             ) : null}
 
             {view === 'publish' ? (
@@ -577,7 +667,7 @@ const App = () => {
                   onPublish={handlePublish}
                 />
                 <KeyExplorer
-                  keys={recentKeys}
+                  keys={activeKeys}
                   filter={recentKeysFilter}
                   onFilterChange={setRecentKeysFilter}
                 />
