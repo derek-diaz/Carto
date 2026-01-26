@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PublishEncoding } from '@shared/types';
-import { IconPublish } from './Icons';
+import { IconChevronDown, IconPublish } from './Icons';
 
 export const DEFAULT_PUBLISH_KEYEXPR = 'demo/publish';
 export const DEFAULT_PUBLISH_JSON = '{\n  "message": "hello from Carto"\n}';
+const KEYEXPR_HISTORY_KEY = 'carto.keyexpr.publish.history';
+const MAX_KEYEXPR_HISTORY = 8;
 
 export type PublishDraft = {
   keyexpr: string;
@@ -22,7 +24,37 @@ type PublishPanelProps = {
 const PublishPanel = ({ connected, publishSupport, draft, onDraftChange, onPublish }: PublishPanelProps) => {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ type: 'ok' | 'error'; message: string } | null>(null);
+  const [keyexprHistory, setKeyexprHistory] = useState<string[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const comboRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const historyRef = useRef<string[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const mergeHistory = (base: string[], add: string[]) => {
+    const combined = [...add, ...base];
+    const seen = new Set<string>();
+    const next: string[] = [];
+    for (const entry of combined) {
+      if (!seen.has(entry)) {
+        seen.add(entry);
+        next.push(entry);
+      }
+    }
+    return next.slice(0, MAX_KEYEXPR_HISTORY);
+  };
+
+  const persistHistory = (entries: string[]) => {
+    if ('localStorage' in globalThis) {
+      globalThis.localStorage.setItem(KEYEXPR_HISTORY_KEY, JSON.stringify(entries));
+    }
+  };
+
+  const updateHistory = (entries: string[]) => {
+    historyRef.current = entries;
+    setKeyexprHistory(entries);
+    persistHistory(entries);
+  };
 
   useEffect(() => {
     return () => {
@@ -32,15 +64,46 @@ const PublishPanel = ({ connected, publishSupport, draft, onDraftChange, onPubli
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof globalThis === 'undefined' || !('localStorage' in globalThis)) return;
+    const stored = globalThis.localStorage.getItem(KEYEXPR_HISTORY_KEY);
+    if (!stored) return;
+    try {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) {
+        const entries = parsed.filter((entry) => typeof entry === 'string');
+        updateHistory(entries);
+      }
+    } catch {
+      // ignore history parse errors
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!showHistory) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!comboRef.current) return;
+      if (comboRef.current.contains(event.target as Node)) return;
+      setShowHistory(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [showHistory]);
+
   const handlePublish = async () => {
     if (!connected) return;
+    const nextKeyexpr = draft.keyexpr.trim();
     if (timerRef.current) {
       clearTimeout(timerRef.current);
     }
     setNotice(null);
     setBusy(true);
     try {
-      await onPublish(draft.keyexpr.trim(), draft.payload, draft.encoding);
+      await onPublish(nextKeyexpr, draft.payload, draft.encoding);
+      if (nextKeyexpr) {
+        const next = mergeHistory(historyRef.current, [nextKeyexpr]);
+        updateHistory(next);
+      }
       setNotice({ type: 'ok', message: 'Sent.' });
       timerRef.current = setTimeout(() => setNotice(null), 2000);
     } catch (error) {
@@ -69,15 +132,56 @@ const PublishPanel = ({ connected, publishSupport, draft, onDraftChange, onPubli
           {connected ? 'Ready' : 'Offline'}
         </span>
       </div>
-      <label className="field">
+      <label className="field field--combo">
         <span>Key expression</span>
-        <input
-          type="text"
-          value={draft.keyexpr}
-          onChange={(event) => onDraftChange({ ...draft, keyexpr: event.target.value })}
-          placeholder="demo/publish"
-          disabled={!connected || busy}
-        />
+        <div className="combo" ref={comboRef}>
+          <input
+            ref={inputRef}
+            className="combo__input"
+            type="text"
+            value={draft.keyexpr}
+            onChange={(event) => onDraftChange({ ...draft, keyexpr: event.target.value })}
+            onFocus={() => {
+              if (keyexprHistory.length > 0) setShowHistory(true);
+            }}
+            placeholder="demo/publish"
+            disabled={!connected || busy}
+          />
+          <button
+            className="combo__toggle"
+            type="button"
+            onClick={() => setShowHistory((prev) => !prev)}
+            aria-label="Toggle key expression history"
+            disabled={!connected || busy}
+          >
+            <span className="combo__icon" aria-hidden="true">
+              <IconChevronDown />
+            </span>
+          </button>
+          {showHistory ? (
+            <div className="combo__menu" role="listbox">
+              {keyexprHistory.length === 0 ? (
+                <div className="combo__empty">No saved keyexprs yet.</div>
+              ) : (
+                keyexprHistory.map((entry) => (
+                  <button
+                    key={entry}
+                    className="combo__option"
+                    type="button"
+                    role="option"
+                    onClick={() => {
+                      onDraftChange({ ...draft, keyexpr: entry });
+                      setShowHistory(false);
+                      inputRef.current?.focus();
+                    }}
+                  >
+                    {entry}
+                  </button>
+                ))
+              )}
+            </div>
+          ) : null}
+        </div>
       </label>
       <div className="field">
         <span>Encoding</span>
