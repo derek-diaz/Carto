@@ -66,7 +66,7 @@ export class CartoBackend {
   }
 
   async disconnect(): Promise<void> {
-    for (const subscriptionId of [...this.subscriptions.keys()]) {
+    for (const subscriptionId of this.subscriptions.keys()) {
       try {
         await this.unsubscribe(subscriptionId);
       } catch (error) {
