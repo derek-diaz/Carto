@@ -24,7 +24,8 @@ module.exports = {
     }
   },
   rules: {
-    'react/react-in-jsx-scope': 'off'
+    'react/react-in-jsx-scope': 'off',
+    'react-hooks/set-state-in-effect': 'off'
   },
   ignorePatterns: ['dist', 'node_modules']
 };

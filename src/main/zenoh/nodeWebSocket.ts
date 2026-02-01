@@ -1,6 +1,6 @@
-import net from 'net';
-import tls from 'tls';
-import { createHash, randomBytes } from 'crypto';
+import net from 'node:net';
+import tls from 'node:tls';
+import { createHash, randomBytes } from 'node:crypto';
 
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const DEFAULT_PROTOCOLS = ['zenoh'];
@@ -19,10 +19,10 @@ type ErrorEvent = {
 };
 
 export class NodeWebSocket {
-  static CONNECTING = 0;
-  static OPEN = 1;
-  static CLOSING = 2;
-  static CLOSED = 3;
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSING = 2;
+  static readonly CLOSED = 3;
 
   readonly url: string;
   readyState = NodeWebSocket.CONNECTING;
@@ -121,8 +121,7 @@ export class NodeWebSocket {
         ? `${target.pathname}${target.search || ''}`
         : '';
     const originHost = target.port ? `${host}:${port}` : host;
-    const origin =
-      this.originOverride ?? `${isSecure ? 'https' : 'http'}://${originHost}`;
+    const origin = this.originOverride ?? `${isSecure ? 'https' : 'http'}://${originHost}`;
     this.handshakeKey = randomBytes(16).toString('base64');
     this.expectedAccept = createHash('sha1')
       .update(`${this.handshakeKey}${WS_GUID}`)
@@ -290,13 +289,13 @@ export class NodeWebSocket {
 
     if (opcode === 0x9) {
       if (this.socket && this.readyState === NodeWebSocket.OPEN) {
-        const pong = buildFrame(payload, 0xA, true);
+        const pong = buildFrame(payload, 0xa, true);
         this.socket.write(pong);
       }
       return;
     }
 
-    if (opcode === 0xA) {
+    if (opcode === 0xa) {
       return;
     }
 
