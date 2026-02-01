@@ -28,22 +28,21 @@ const MessageDrawer = ({ message, onClose }: MessageDrawerProps) => {
 
   return (
     <aside className="drawer">
-      <div className="drawer__header">
+      <div className="drawer_header">
         <div>
-          <div className="drawer__title">Message detail</div>
-          <div className="drawer__subtitle">
+          <div className="drawer_title">Message detail</div>
+          <div className="drawer_subtitle">
             {message.key} - {formatTime(message.ts)} - {formatBytes(message.sizeBytes)}
           </div>
         </div>
         <button className="button button--ghost" onClick={onClose}>
-          <span className="button__icon" aria-hidden="true">
+          <span className="button_icon" aria-hidden="true">
             <IconClose />
-          </span>
-          Close
+          </span>{' '}Close
         </button>
       </div>
 
-      <div className="drawer__tabs">
+      <div className="drawer_tabs">
         <button
           className={`tab ${tab === 'json' ? 'tab--active' : ''}`}
           disabled={!message.json}
@@ -66,10 +65,8 @@ const MessageDrawer = ({ message, onClose }: MessageDrawerProps) => {
         </button>
       </div>
 
-      <div className="drawer__body">
-        {tab === 'json' ? (
-          <pre>{JSON.stringify(message.json, null, 2)}</pre>
-        ) : null}
+      <div className="drawer_body">
+        {tab === 'json' ? <pre>{JSON.stringify(message.json, null, 2)}</pre> : null}
         {tab === 'text' ? <pre>{message.text}</pre> : null}
         {tab === 'base64' ? <pre>{message.base64 ?? ''}</pre> : null}
       </div>
@@ -78,3 +75,4 @@ const MessageDrawer = ({ message, onClose }: MessageDrawerProps) => {
 };
 
 export default MessageDrawer;
+

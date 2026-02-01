@@ -1,33 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CartoMessage } from '@shared/types';
-import logoUrl from '@shared/logo.png';
-import ConnectPanel from './components/ConnectPanel';
-import {
-  IconClock,
-  IconConnection,
-  IconCopy,
-  IconClose,
-  IconHash,
-  IconLinkOff,
-  IconMonitor,
-  IconMoon,
-  IconPause,
-  IconPlay,
-  IconPlus,
-  IconPublish,
-  IconReplay,
-  IconSun,
-  IconTrash
-} from './components/Icons';
-import KeyExplorer from './components/KeyExplorer';
+import AppHeader from './components/AppHeader';
+import AppRail from './components/AppRail';
+import ConnectionView from './components/ConnectionView';
+import MonitorView from './components/MonitorView';
 import MessageDrawer from './components/MessageDrawer';
-import PublishPanel, {
+import PublishView from './components/PublishView';
+import {
   DEFAULT_PUBLISH_JSON,
   DEFAULT_PUBLISH_KEYEXPR,
   type PublishDraft
 } from './components/PublishPanel';
-import StreamView from './components/StreamView';
-import SubscribePanel from './components/SubscribePanel';
 import { useCarto } from './store/useCarto';
 
 const App = () => {
@@ -139,7 +122,9 @@ const App = () => {
 
   const viewDescription = useMemo(() => {
     if (view === 'monitor') {
-      return selectedSub ? `Streaming ${selectedSub.keyexpr}` : 'Pick a subscription to start streaming.';
+      return selectedSub
+        ? `Streaming ${selectedSub.keyexpr}`
+        : 'Pick a subscription to start streaming.';
     }
     if (view === 'publish') {
       if (publishSupport === 'supported') {
@@ -164,6 +149,9 @@ const App = () => {
   const useKeyexprTitle = canUseKeyexpr
     ? `${useKeyexprLabel}: ${selectedKeyexpr ?? recentKeyexpr ?? ''}`
     : 'No keys available yet';
+  const handleOpenConnection = useCallback(() => {
+    setView('connection');
+  }, []);
 
   const handleCopyEndpoint = useCallback(async () => {
     if (!lastEndpoint || !canCopyEndpoint) return;
@@ -272,22 +260,22 @@ const App = () => {
       }
       if (event.shiftKey && key === 'd' && status.connected) {
         event.preventDefault();
-        void handleDisconnect();
+        handleDisconnect();
         return;
       }
       if (event.shiftKey && key === 'p' && view === 'monitor' && selectedSub && status.connected) {
         event.preventDefault();
-        void handleTogglePause();
+        handleTogglePause().catch(() => {});
         return;
       }
       if (event.shiftKey && key === 'k' && view === 'monitor' && selectedSub && status.connected) {
         event.preventDefault();
-        void handleClearBuffer();
+        handleClearBuffer().catch(() => {});
         return;
       }
       if (event.shiftKey && key === 'r' && view === 'publish' && lastPublish && status.connected) {
         event.preventDefault();
-        void handleReplayLast();
+        handleReplayLast().catch(() => {});
       }
     };
 
@@ -308,381 +296,89 @@ const App = () => {
 
   return (
     <div className="app">
-      <div className="app__frame">
-        <aside className="app__rail">
-          <div className="rail__brand">
-            <img className="rail__logo" src={logoUrl} alt="Carto logo" />
-            <span className="rail__name">Carto</span>
-          </div>
-          <div className="rail__group">
-            <button
-              className={`rail__button ${view === 'monitor' ? 'rail__button--active' : ''}`}
-              onClick={() => setView('monitor')}
-              disabled={!status.connected}
-              title="Monitor (Ctrl/Cmd+1)"
-            >
-              <span className="rail__icon" aria-hidden="true">
-                <IconMonitor aria-hidden="true" />
-              </span>
-              <span className="rail__label">Monitor</span>
-            </button>
-            <button
-              className={`rail__button ${view === 'publish' ? 'rail__button--active' : ''}`}
-              onClick={() => setView('publish')}
-              disabled={!status.connected}
-              title="Publish (Ctrl/Cmd+2)"
-            >
-              <span className="rail__icon" aria-hidden="true">
-                <IconPublish aria-hidden="true" />
-              </span>
-              <span className="rail__label">Publish</span>
-            </button>
-            <button
-              className={`rail__button ${view === 'connection' ? 'rail__button--active' : ''}`}
-              onClick={() => setView('connection')}
-              title="Connection (Ctrl/Cmd+3)"
-            >
-              <span className="rail__icon" aria-hidden="true">
-                <IconConnection aria-hidden="true" />
-              </span>
-              <span className="rail__label">Connection</span>
-            </button>
-          </div>
-          <div className="rail__footer">
-            <button
-              className="rail__button"
-              onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
-              type="button"
-              title="Toggle theme (Ctrl/Cmd+Shift+L)"
-            >
-              <span className="rail__icon" aria-hidden="true">
-                {theme === 'dark' ? (
-                  <IconSun aria-hidden="true" />
-                ) : (
-                  <IconMoon aria-hidden="true" />
-                )}
-              </span>
-              <span className="rail__label">{theme === 'dark' ? 'Light' : 'Dark'} mode</span>
-            </button>
-          </div>
-        </aside>
+      <div className="app_frame">
+        <AppRail
+          theme={theme}
+          view={view}
+          connected={status.connected}
+          onSetView={setView}
+          onToggleTheme={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
+        />
 
-        <div className="app__shell">
-          <header className="app__header">
-            <div className="app__header-left">
-              <div className="app__title">
-                <h1>{viewTitle}</h1>
-                <p>{viewDescription}</p>
-              </div>
-            </div>
-            <div className="app__header-right">
-              <div className="app__stats">
-                <div className="stat">
-                  <span className="stat__label">Subscriptions</span>
-                  <span className="stat__value">{subscriptionCount}</span>
-                </div>
-                <div className="stat">
-                  <span className="stat__label">Buffered</span>
-                  <span className="stat__value">{bufferedCount}</span>
-                </div>
-                <div className="stat">
-                  <span className="stat__label">Keys</span>
-                  <span className="stat__value">{keyCount}</span>
-                </div>
-              </div>
-              <div className={`status ${status.connected ? 'status--ok' : 'status--idle'}`}>
-                <span className={`dot ${status.connected ? 'dot--ok' : 'dot--idle'}`} />
-                <span>{status.connected ? 'Live' : 'Idle'}</span>
-              </div>
-              <div className="header-endpoint" title={endpointTitle}>
-                <span className="header-endpoint__label">
-                  {status.connected ? 'Endpoint' : 'Last endpoint'}
-                </span>
-                <span className="header-endpoint__value">{endpointLabel}</span>
-                <button
-                  className="icon-button icon-button--compact icon-button--ghost"
-                  onClick={handleCopyEndpoint}
-                  disabled={!lastEndpoint || !canCopyEndpoint}
-                  type="button"
-                  title={copied ? 'Copied' : 'Copy endpoint'}
-                  aria-label="Copy endpoint"
-                >
-                  <span className="icon-button__icon" aria-hidden="true">
-                    <IconCopy />
-                  </span>
-                </button>
-              </div>
-              <div className="app__actions">
-                {view === 'monitor' && selectedSub ? (
-                  <>
-                    <button
-                      className="button button--ghost button--compact"
-                      onClick={() => void handleTogglePause()}
-                      title="Pause or resume (Ctrl/Cmd+Shift+P)"
-                      type="button"
-                    >
-                      <span className="button__icon" aria-hidden="true">
-                        {selectedSub.paused ? <IconPlay /> : <IconPause />}
-                      </span>
-                      {selectedSub.paused ? 'Resume' : 'Pause'}
-                    </button>
-                    <button
-                      className="button button--ghost button--compact"
-                      onClick={() => void handleClearBuffer()}
-                      title="Clear buffer (Ctrl/Cmd+Shift+K)"
-                      type="button"
-                    >
-                      <span className="button__icon" aria-hidden="true">
-                        <IconTrash />
-                      </span>
-                      Clear buffer
-                    </button>
-                  </>
-                ) : null}
-                {view === 'publish' ? (
-                  <>
-                    <button
-                      className="button button--ghost button--compact"
-                      onClick={() => void handleUseKeyexpr()}
-                      title={useKeyexprTitle}
-                      type="button"
-                      disabled={!canUseKeyexpr}
-                    >
-                      <span className="button__icon" aria-hidden="true">
-                        <IconHash />
-                      </span>
-                      {useKeyexprLabel}
-                    </button>
-                    <button
-                      className="button button--ghost button--compact"
-                      onClick={() => void handleLoadLastPublish()}
-                      title="Load last publish"
-                      type="button"
-                      disabled={!lastPublish}
-                    >
-                      <span className="button__icon" aria-hidden="true">
-                        <IconClock />
-                      </span>
-                      Load last
-                    </button>
-                    <button
-                      className="button button--ghost button--compact"
-                      onClick={() => void handleReplayLast()}
-                      title="Replay last publish (Ctrl/Cmd+Shift+R)"
-                      type="button"
-                      disabled={!lastPublish || !status.connected}
-                    >
-                      <span className="button__icon" aria-hidden="true">
-                        <IconReplay />
-                      </span>
-                      Replay last
-                    </button>
-                  </>
-                ) : null}
-                {status.connected ? (
-                  <button
-                    className="button button--danger button--compact"
-                    onClick={() => void handleDisconnect()}
-                    title="Disconnect (Ctrl/Cmd+Shift+D)"
-                    type="button"
-                  >
-                    <span className="button__icon" aria-hidden="true">
-                      <IconLinkOff />
-                    </span>
-                    Disconnect
-                  </button>
-                ) : (
-                  <button
-                    className="button button--compact"
-                    onClick={() => setView('connection')}
-                    title="Connection (Ctrl/Cmd+3)"
-                    type="button"
-                  >
-                    <span className="button__icon" aria-hidden="true">
-                      <IconConnection />
-                    </span>
-                    Connect
-                  </button>
-                )}
-                {actionNotice ? (
-                  <span className={`header-notice header-notice--${actionNotice.type}`}>
-                    {actionNotice.message}
-                  </span>
-                ) : null}
-              </div>
-            </div>
-          </header>
+        <div className="app_shell">
+          <AppHeader
+            viewTitle={viewTitle}
+            viewDescription={viewDescription}
+            subscriptionCount={subscriptionCount}
+            bufferedCount={bufferedCount}
+            keyCount={keyCount}
+            statusConnected={status.connected}
+            endpointLabel={endpointLabel}
+            endpointTitle={endpointTitle}
+            canCopyEndpoint={canCopyEndpoint}
+            copied={copied}
+            lastEndpoint={lastEndpoint}
+            onCopyEndpoint={handleCopyEndpoint}
+            view={view}
+            selectedSub={selectedSub}
+            onTogglePause={handleTogglePause}
+            onClearBuffer={handleClearBuffer}
+            onUseKeyexpr={handleUseKeyexpr}
+            useKeyexprLabel={useKeyexprLabel}
+            useKeyexprTitle={useKeyexprTitle}
+            canUseKeyexpr={canUseKeyexpr}
+            onLoadLastPublish={handleLoadLastPublish}
+            lastPublish={lastPublish}
+            onReplayLast={handleReplayLast}
+            actionNotice={actionNotice}
+            onDisconnect={handleDisconnect}
+            onOpenConnection={handleOpenConnection}
+          />
 
-          <div className="app__body">
+          <div className="app_body">
             {view === 'monitor' ? (
-              subscriptions.length === 0 ? (
-                <div className="app__page app__page--center">
-                  <SubscribePanel
-                    connected={status.connected}
-                    subscriptions={subscriptions}
-                    selectedSubId={selectedSubId}
-                    onSubscribe={handleSubscribe}
-                    onUnsubscribe={unsubscribe}
-                    onPause={setPaused}
-                    onClear={clearBuffer}
-                    onSelect={setSelectedSubId}
-                  />
-                </div>
-              ) : (
-                <div className="app__content app__content--single">
-                  <main className="main main--tabs">
-                    <div className="monitor-tabs">
-                      <div className="monitor-tabs__scroll">
-                        <div className="tabs tabs--subscriptions" role="tablist" aria-label="Subscriptions">
-                          {subscriptions.map((sub) => {
-                            const isActive = selectedSubId === sub.id;
-                            return (
-                              <div
-                                key={sub.id}
-                                className={`tab-pill ${isActive ? 'tab-pill--active' : ''}`}
-                              >
-                                <button
-                                  className="tab-pill__select"
-                                  onClick={() => setSelectedSubId(sub.id)}
-                                  type="button"
-                                  title={sub.keyexpr}
-                                  role="tab"
-                                  aria-selected={isActive}
-                                >
-                                  <span className="tabs__label">{sub.keyexpr}</span>
-                                  {sub.paused ? <span className="tabs__status">Paused</span> : null}
-                                </button>
-                                <button
-                                  className="tab-pill__close"
-                                  onClick={() => {
-                                    void unsubscribe(sub.id).catch(() => {});
-                                  }}
-                                  type="button"
-                                  title={`Close ${sub.keyexpr}`}
-                                  aria-label={`Close ${sub.keyexpr}`}
-                                >
-                                  <span className="tab-pill__icon" aria-hidden="true">
-                                    <IconClose />
-                                  </span>
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                      <button
-                        className="button button--ghost monitor-tabs__add"
-                        onClick={() => setShowSubscribe(true)}
-                        type="button"
-                        title="Add subscription"
-                      >
-                        <span className="button__icon" aria-hidden="true">
-                          <IconPlus />
-                        </span>
-                        Add subscription
-                      </button>
-                    </div>
-
-                    {showSubscribe ? (
-                      <div className="modal" role="dialog" aria-modal="true" aria-label="Add subscription">
-                        <div className="modal__backdrop" onClick={() => setShowSubscribe(false)} />
-                        <div className="modal__content">
-                          <SubscribePanel
-                            connected={status.connected}
-                            subscriptions={subscriptions}
-                            selectedSubId={selectedSubId}
-                            onSubscribe={handleSubscribe}
-                            onUnsubscribe={unsubscribe}
-                            onPause={setPaused}
-                            onClear={clearBuffer}
-                            onSelect={setSelectedSubId}
-                            onClose={() => setShowSubscribe(false)}
-                          />
-                        </div>
-                      </div>
-                    ) : null}
-
-                    <div className="tabs">
-                      <button
-                        className={`tabs__button ${
-                          monitorTab === 'stream' ? 'tabs__button--active' : ''
-                        }`}
-                        onClick={() => setMonitorTab('stream')}
-                        type="button"
-                      >
-                        <span className="tabs__icon" aria-hidden="true">
-                          <IconMonitor />
-                        </span>
-                        Stream
-                        <span className="tabs__badge">{selectedMessages.length}</span>
-                      </button>
-                      <button
-                        className={`tabs__button ${
-                          monitorTab === 'keys' ? 'tabs__button--active' : ''
-                        }`}
-                        onClick={() => setMonitorTab('keys')}
-                        type="button"
-                      >
-                        <span className="tabs__icon" aria-hidden="true">
-                          <IconHash />
-                        </span>
-                        Keys
-                        <span className="tabs__badge">{selectedRecentKeys.length}</span>
-                      </button>
-                    </div>
-                    <div
-                      className={`monitor-panel ${
-                        monitorTab === 'stream' ? 'monitor-panel--active' : ''
-                      }`}
-                    >
-                      <StreamView
-                        title={streamTitle}
-                        messages={selectedMessages}
-                        onSelectMessage={setSelectedMessage}
-                      />
-                    </div>
-                    <div
-                      className={`monitor-panel ${
-                        monitorTab === 'keys' ? 'monitor-panel--active' : ''
-                      }`}
-                    >
-                      <KeyExplorer
-                        keys={selectedRecentKeys}
-                        filter={recentKeysFilter}
-                        onFilterChange={setRecentKeysFilter}
-                      />
-                    </div>
-                  </main>
-                </div>
-              )
+              <MonitorView
+                connected={status.connected}
+                subscriptions={subscriptions}
+                selectedSubId={selectedSubId}
+                setSelectedSubId={setSelectedSubId}
+                selectedMessages={selectedMessages}
+                selectedRecentKeys={selectedRecentKeys}
+                recentKeysFilter={recentKeysFilter}
+                setRecentKeysFilter={setRecentKeysFilter}
+                streamTitle={streamTitle}
+                monitorTab={monitorTab}
+                setMonitorTab={setMonitorTab}
+                showSubscribe={showSubscribe}
+                setShowSubscribe={setShowSubscribe}
+                onSubscribe={handleSubscribe}
+                onUnsubscribe={unsubscribe}
+                onPause={setPaused}
+                onClear={clearBuffer}
+                onSelectMessage={setSelectedMessage}
+              />
             ) : null}
 
             {view === 'publish' ? (
-              <div className="app__page app__page--wide">
-                <PublishPanel
-                  connected={status.connected}
-                  publishSupport={publishSupport}
-                  draft={publishDraft}
-                  onDraftChange={setPublishDraft}
-                  onPublish={handlePublish}
-                />
-                <KeyExplorer
-                  keys={activeKeys}
-                  filter={recentKeysFilter}
-                  onFilterChange={setRecentKeysFilter}
-                />
-              </div>
+              <PublishView
+                connected={status.connected}
+                publishSupport={publishSupport}
+                draft={publishDraft}
+                onDraftChange={setPublishDraft}
+                onPublish={handlePublish}
+                keys={activeKeys}
+                filter={recentKeysFilter}
+                onFilterChange={setRecentKeysFilter}
+              />
             ) : null}
 
             {view === 'connection' ? (
-              <div className="app__page">
-                <ConnectPanel
-                  status={status}
-                  defaultEndpoint={lastEndpoint || undefined}
-                  onConnect={connect}
-                  onDisconnect={disconnect}
-                />
-              </div>
+              <ConnectionView
+                status={status}
+                defaultEndpoint={lastEndpoint || undefined}
+                onConnect={connect}
+                onDisconnect={disconnect}
+              />
             ) : null}
           </div>
         </div>

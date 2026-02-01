@@ -63,8 +63,7 @@ const StreamView = ({ title, messages, onSelectMessage }: StreamViewProps) => {
   const handleScroll = (event: UIEvent<HTMLDivElement>) => {
     if (!followLatest) return;
     const target = event.currentTarget;
-    const isAtBottom =
-      target.scrollTop + target.clientHeight >= target.scrollHeight - ROW_HEIGHT;
+    const isAtBottom = target.scrollTop + target.clientHeight >= target.scrollHeight - ROW_HEIGHT;
     if (!isAtBottom) {
       setFollowLatest(false);
     }
@@ -76,9 +75,9 @@ const StreamView = ({ title, messages, onSelectMessage }: StreamViewProps) => {
 
   return (
     <section className="panel panel--stream">
-      <div className="panel__header">
+      <div className="panel_header">
         <h2>{title}</h2>
-        <div className="panel__actions">
+        <div className="panel_actions">
           <button
             className={`button button--ghost button--compact ${
               followLatest ? 'button--active' : ''
@@ -86,10 +85,9 @@ const StreamView = ({ title, messages, onSelectMessage }: StreamViewProps) => {
             onClick={() => setFollowLatest((prev) => !prev)}
             type="button"
           >
-            <span className="button__icon" aria-hidden="true">
+            <span className="button_icon" aria-hidden="true">
               <IconFollow />
-            </span>
-            Follow
+            </span>{' '}Follow
           </button>
           {!followLatest ? (
             <button
@@ -97,21 +95,20 @@ const StreamView = ({ title, messages, onSelectMessage }: StreamViewProps) => {
               onClick={handleJumpToLatest}
               type="button"
             >
-              <span className="button__icon" aria-hidden="true">
+              <span className="button_icon" aria-hidden="true">
                 <IconLatest />
-              </span>
-              Latest
+              </span>{' '}Latest
             </button>
           ) : null}
           <span className="badge badge--idle">{countLabel}</span>
         </div>
       </div>
-      <div className="panel__toolbar stream__filters">
-        <div className="stream__filter-grid">
-          <label className="stream__filter">
-            <span className="stream__filter-label">Key</span>
+      <div className="panel_toolbar stream_filters">
+        <div className="stream_filter-grid">
+          <label className="stream_filter">
+            <span className="stream_filter-label">Key</span>
             <div className="input-group input-group--filter">
-              <span className="input-group__icon" aria-hidden="true">
+              <span className="input-group_icon" aria-hidden="true">
                 <IconHash />
               </span>
               <input
@@ -128,17 +125,17 @@ const StreamView = ({ title, messages, onSelectMessage }: StreamViewProps) => {
                   type="button"
                   aria-label="Clear key filter"
                 >
-                  <span className="icon-button__icon" aria-hidden="true">
+                  <span className="icon-button_icon" aria-hidden="true">
                     <IconClose />
                   </span>
                 </button>
               ) : null}
             </div>
           </label>
-          <label className="stream__filter">
-            <span className="stream__filter-label">Content</span>
+          <label className="stream_filter">
+            <span className="stream_filter-label">Content</span>
             <div className="input-group input-group--filter">
-              <span className="input-group__icon" aria-hidden="true">
+              <span className="input-group_icon" aria-hidden="true">
                 <IconSearch />
               </span>
               <input
@@ -155,7 +152,7 @@ const StreamView = ({ title, messages, onSelectMessage }: StreamViewProps) => {
                   type="button"
                   aria-label="Clear content filter"
                 >
-                  <span className="icon-button__icon" aria-hidden="true">
+                  <span className="icon-button_icon" aria-hidden="true">
                     <IconClose />
                   </span>
                 </button>
@@ -163,7 +160,7 @@ const StreamView = ({ title, messages, onSelectMessage }: StreamViewProps) => {
             </div>
           </label>
         </div>
-        <div className="stream__filter-actions">
+        <div className="stream_filter-actions">
           <button
             className={`button button--ghost button--compact ${
               highlightMatches ? 'button--active' : ''
@@ -172,8 +169,9 @@ const StreamView = ({ title, messages, onSelectMessage }: StreamViewProps) => {
             type="button"
             disabled={!filtersActive}
           >
-            <span className="button__icon" aria-hidden="true"> <IconHighlighter /> </span>
-            Highlight
+            <span className="button_icon" aria-hidden="true">
+              <IconHighlighter />
+            </span>{' '}Highlight
           </button>
           <button
             className="button button--ghost button--compact"
@@ -184,10 +182,9 @@ const StreamView = ({ title, messages, onSelectMessage }: StreamViewProps) => {
             type="button"
             disabled={!filtersActive}
           >
-            <span className="button__icon" aria-hidden="true">
+            <span className="button_icon" aria-hidden="true">
               <IconClose />
-            </span>
-            Clear
+            </span>{' '}Clear
           </button>
         </div>
       </div>
@@ -206,13 +203,15 @@ const StreamView = ({ title, messages, onSelectMessage }: StreamViewProps) => {
                   rowCount={filteredMessages.length}
                   rowHeight={ROW_HEIGHT}
                   rowComponent={Row}
-                  rowProps={{
-                    messages: filteredMessages,
-                    onSelect: onSelectMessage,
-                    keyFilter: normalizedKeyFilter,
-                    contentFilter: normalizedContentFilter,
-                    highlightMatches
-                  } satisfies RowData}
+                  rowProps={
+                    {
+                      messages: filteredMessages,
+                      onSelect: onSelectMessage,
+                      keyFilter: normalizedKeyFilter,
+                      contentFilter: normalizedContentFilter,
+                      highlightMatches
+                    } satisfies RowData
+                  }
                   onScroll={handleScroll}
                   style={{ height, width }}
                 />
@@ -235,8 +234,7 @@ const Row = ({
   contentFilter,
   highlightMatches
 }: RowComponentProps<RowData>) => {
-  const { role: _role, ...rowAria } = ariaAttributes;
-  void _role;
+  const rowAria = ariaAttributes;
   const msg = messages[index];
   const preview = buildPreview(msg);
   const keyNode = highlightText(msg.key, keyFilter, highlightMatches);
@@ -244,17 +242,17 @@ const Row = ({
   return (
     <button
       type="button"
-      className="stream__row"
+      className="stream_row"
       style={style}
       onClick={() => onSelect(msg)}
       {...rowAria}
     >
-      <div className="stream__meta">
-        <div className="stream__time">{formatTime(msg.ts)}</div>
-        <div className="stream__key">{keyNode}</div>
+      <div className="stream_meta">
+        <div className="stream_time">{formatTime(msg.ts)}</div>
+        <div className="stream_key">{keyNode}</div>
       </div>
-      <div className="stream__payload">{payloadNode}</div>
-      <div className="stream__size">{formatBytes(msg.sizeBytes)}</div>
+      <div className="stream_payload">{payloadNode}</div>
+      <div className="stream_size">{formatBytes(msg.sizeBytes)}</div>
     </button>
   );
 };
@@ -317,3 +315,5 @@ const highlightText = (text: string, query: string, enabled: boolean) => {
 };
 
 export default StreamView;
+
+

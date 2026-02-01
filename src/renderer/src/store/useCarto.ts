@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CartoMessage, ConnectionStatus, PublishEncoding, RecentKeyStats } from '@shared/types';
+import type {
+  CartoMessage,
+  ConnectionStatus,
+  PublishEncoding,
+  RecentKeyStats
+} from '@shared/types';
 
 export type Subscription = {
   id: string;
@@ -179,11 +184,14 @@ export const useCarto = () => {
     setMessagesBySub((prev) => ({ ...prev, [subscriptionId]: [] }));
   }, []);
 
-  const publish = useCallback(async (keyexpr: string, payload: string, encoding: PublishEncoding) => {
-    const carto = getCarto();
-    if (!carto) return;
-    await carto.publish({ keyexpr, payload, encoding });
-  }, []);
+  const publish = useCallback(
+    async (keyexpr: string, payload: string, encoding: PublishEncoding) => {
+      const carto = getCarto();
+      if (!carto) return;
+      await carto.publish({ keyexpr, payload, encoding });
+    },
+    []
+  );
 
   const selectedMessages = useMemo(() => {
     if (!selectedSubId) return [];

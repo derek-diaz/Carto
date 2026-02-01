@@ -1,0 +1,14 @@
+services:
+  zenoh:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zenoh
+    ports:
+      - "7447:7447"
+      - "10000:10000"
+      - "8000:8000"
+    volumes:
+      - ./zenoh.json5:/etc/zenoh/zenoh.json5:ro
+    command: ["zenohd", "-c", "/etc/zenoh/zenoh.json5"]
+    restart: unless-stopped

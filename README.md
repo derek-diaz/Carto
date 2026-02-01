@@ -24,6 +24,25 @@ The plugin is located here: [zenoh-plugin-remote-api downloads](https://download
 
 Here's how to set up Docker with Zenoh plugins: [Adding plugins and backends to the container](https://zenoh.io/docs/getting-started/quick-test/#adding-plugins-and-backends-to-the-container).
 
+
+## Running Zenoh with the Plugins (Docker)
+
+If you don’t already have a Zenoh router with Remote API enabled, this repository includes a
+Docker-based local Zenoh setup you can use as a starting point.
+
+```bash
+cd docker
+docker compose up --build
+````
+
+By default, this starts a local Zenoh router with the Remote API exposed at:
+```bash
+ws://localhost:10000
+```
+You can then point Carto at that endpoint.
+
+See `docker/README.md` for details.
+
 ## Development
 
 Make sure you have Node.js 24+ installed.

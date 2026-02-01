@@ -10,7 +10,7 @@ type KeyExplorerProps = {
 const KeyExplorer = ({ keys, filter, onFilterChange }: KeyExplorerProps) => {
   return (
     <section className="panel panel--keys">
-      <div className="panel__header">
+      <div className="panel_header">
         <h2>Key explorer</h2>
         <span className="badge badge--idle">{keys.length} keys</span>
       </div>
@@ -24,7 +24,7 @@ const KeyExplorer = ({ keys, filter, onFilterChange }: KeyExplorerProps) => {
         />
       </label>
       <div className="table">
-        <div className="table__row table__head">
+        <div className="table_row table_head">
           <div>Key</div>
           <div>Count</div>
           <div>Last seen</div>
@@ -34,8 +34,8 @@ const KeyExplorer = ({ keys, filter, onFilterChange }: KeyExplorerProps) => {
           <div className="empty">No keys observed yet.</div>
         ) : (
           keys.slice(0, 200).map((entry) => (
-            <div key={entry.key} className="table__row">
-              <div className="table__key">{entry.key}</div>
+            <div key={entry.key} className="table_row">
+              <div className="table_key">{entry.key}</div>
               <div>{entry.count}</div>
               <div>{formatAge(entry.lastSeen)}</div>
               <div>{formatBytes(entry.bytes)}</div>

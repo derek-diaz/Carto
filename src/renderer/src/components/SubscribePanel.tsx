@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Subscription } from '../store/useCarto';
 import {
   IconChevronDown,
@@ -27,6 +27,25 @@ type SubscribePanelProps = {
   onClose?: () => void;
 };
 
+const mergeHistory = (base: string[], add: string[]) => {
+  const combined = [...add, ...base];
+  const seen = new Set<string>();
+  const next: string[] = [];
+  for (const entry of combined) {
+    if (!seen.has(entry)) {
+      seen.add(entry);
+      next.push(entry);
+    }
+  }
+  return next.slice(0, MAX_KEYEXPR_HISTORY);
+};
+
+const persistHistory = (entries: string[]) => {
+  if ('localStorage' in globalThis) {
+    globalThis.localStorage.setItem(KEYEXPR_HISTORY_KEY, JSON.stringify(entries));
+  }
+};
+
 const SubscribePanel = ({
   connected,
   subscriptions,
@@ -52,30 +71,11 @@ const SubscribePanel = ({
   const validationError = trimmedKeyexpr ? getKeyexprError(trimmedKeyexpr) : null;
   const displayError = validationError ?? error;
 
-  const mergeHistory = (base: string[], add: string[]) => {
-    const combined = [...add, ...base];
-    const seen = new Set<string>();
-    const next: string[] = [];
-    for (const entry of combined) {
-      if (!seen.has(entry)) {
-        seen.add(entry);
-        next.push(entry);
-      }
-    }
-    return next.slice(0, MAX_KEYEXPR_HISTORY);
-  };
-
-  const persistHistory = (entries: string[]) => {
-    if ('localStorage' in globalThis) {
-      globalThis.localStorage.setItem(KEYEXPR_HISTORY_KEY, JSON.stringify(entries));
-    }
-  };
-
-  const updateHistory = (entries: string[]) => {
+  const updateHistory = useCallback((entries: string[]) => {
     historyRef.current = entries;
     setKeyexprHistory(entries);
     persistHistory(entries);
-  };
+  }, []);
 
   useEffect(() => {
     setError(null);
@@ -94,7 +94,7 @@ const SubscribePanel = ({
     } catch {
       // ignore history parse errors
     }
-  }, []);
+  }, [updateHistory]);
 
   useEffect(() => {
     if (subscriptions.length === 0) return;
@@ -108,7 +108,7 @@ const SubscribePanel = ({
     if (!isSame) {
       updateHistory(next);
     }
-  }, [subscriptions]);
+  }, [subscriptions, updateHistory]);
 
   useEffect(() => {
     if (!showHistory) return;
@@ -146,11 +146,10 @@ const SubscribePanel = ({
 
   return (
     <section className="panel panel--subscribe">
-      <div className="panel__header">
+      <div className="panel_header">
         <h2>Subscribe</h2>
-        <div className="panel__actions">
-          <span className="badge badge--idle">{subscriptions.length} active</span>
-          {onClose ? (
+        <div className="panel_actions">
+          <span className="badge badge--idle">{subscriptions.length} active</span>{onClose ? (
             <button
               className="icon-button icon-button--compact icon-button--ghost"
               onClick={onClose}
@@ -158,7 +157,7 @@ const SubscribePanel = ({
               title="Close"
               aria-label="Close"
             >
-              <span className="icon-button__icon" aria-hidden="true">
+              <span className="icon-button_icon" aria-hidden="true">
                 <IconClose />
               </span>
             </button>
@@ -170,7 +169,7 @@ const SubscribePanel = ({
         <div className="combo" ref={comboRef}>
           <input
             ref={inputRef}
-            className="combo__input"
+            className="combo_input"
             type="text"
             value={keyexpr}
             onChange={(event) => setKeyexpr(event.target.value)}
@@ -181,25 +180,25 @@ const SubscribePanel = ({
             disabled={!connected || busy}
           />
           <button
-            className="combo__toggle"
+            className="combo_toggle"
             type="button"
             onClick={() => setShowHistory((prev) => !prev)}
             aria-label="Toggle key expression history"
             disabled={!connected || busy}
           >
-            <span className="combo__icon" aria-hidden="true">
+            <span className="combo_icon" aria-hidden="true">
               <IconChevronDown />
             </span>
           </button>
           {showHistory ? (
-            <div className="combo__menu" role="listbox">
+            <div className="combo_menu" role="listbox">
               {keyexprHistory.length === 0 ? (
-                <div className="combo__empty">No saved keyexprs yet.</div>
+                <div className="combo_empty">No saved keyexprs yet.</div>
               ) : (
                 keyexprHistory.map((entry) => (
                   <button
                     key={entry}
-                    className="combo__option"
+                    className="combo_option"
                     type="button"
                     role="option"
                     onClick={() => {
@@ -228,19 +227,18 @@ const SubscribePanel = ({
           disabled={!connected || busy}
         />
       </label>
-      <div className="panel__actions">
+      <div className="panel_actions">
         <button
           className="button"
           onClick={handleSubscribe}
           disabled={!connected || busy || !trimmedKeyexpr || Boolean(validationError)}
         >
-          <span className="button__icon" aria-hidden="true">
+          <span className="button_icon" aria-hidden="true">
             <IconPlus />
-          </span>
-          Start
+          </span>{' '}Start
         </button>
       </div>
-      {displayError ? <div className="panel__error">{displayError}</div> : null}
+      {displayError ? <div className="panel_error">{displayError}</div> : null}
 
       <div className="list">
         {subscriptions.length === 0 ? (
@@ -249,49 +247,46 @@ const SubscribePanel = ({
           subscriptions.map((sub) => (
             <div
               key={sub.id}
-              className={`list__row ${selectedSubId === sub.id ? 'list__row--active' : ''}`}
+              className={`list_row ${selectedSubId === sub.id ? 'list_row--active' : ''}`}
               onClick={() => onSelect(sub.id)}
             >
-              <div className="list__meta">
-                <div className="list__title">{sub.keyexpr}</div>
-                <div className="list__subtitle">Buffer {sub.bufferSize}</div>
+              <div className="list_meta">
+                <div className="list_title">{sub.keyexpr}</div>
+                <div className="list_subtitle">Buffer {sub.bufferSize}</div>
               </div>
-              <div className="list__actions">
+              <div className="list_actions">
                 <button
                   className="button button--ghost"
                   onClick={(event) => {
                     event.stopPropagation();
-                    void onPause(sub.id, !sub.paused).catch(() => {});
+                    onPause(sub.id, !sub.paused).catch(() => {});
                   }}
                 >
-                  <span className="button__icon" aria-hidden="true">
+                  <span className="button_icon" aria-hidden="true">
                     {sub.paused ? <IconPlay /> : <IconPause />}
-                  </span>
-                  {sub.paused ? 'Resume' : 'Pause'}
+                  </span>{' '}{sub.paused ? 'Resume' : 'Pause'}
                 </button>
                 <button
                   className="button button--ghost"
                   onClick={(event) => {
                     event.stopPropagation();
-                    void onClear(sub.id).catch(() => {});
+                    onClear(sub.id).catch(() => {});
                   }}
                 >
-                  <span className="button__icon" aria-hidden="true">
+                  <span className="button_icon" aria-hidden="true">
                     <IconTrash />
-                  </span>
-                  Clear
+                  </span>{' '}Clear
                 </button>
                 <button
                   className="button button--danger"
                   onClick={(event) => {
                     event.stopPropagation();
-                    void onUnsubscribe(sub.id).catch(() => {});
+                    onUnsubscribe(sub.id).catch(() => {});
                   }}
                 >
-                  <span className="button__icon" aria-hidden="true">
+                  <span className="button_icon" aria-hidden="true">
                     <IconStop />
-                  </span>
-                  Stop
+                  </span>{' '}Stop
                 </button>
               </div>
             </div>
@@ -303,3 +298,4 @@ const SubscribePanel = ({
 };
 
 export default SubscribePanel;
+

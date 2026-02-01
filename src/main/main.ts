@@ -1,11 +1,11 @@
 import { app, BrowserWindow, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
-import { CartoBackend } from './backend/cartoBackend';
+import { createCartoBackend } from './backend/cartoBackend';
 import { registerIpc } from './ipc';
 
 let mainWindow: BrowserWindow | null = null;
-const backend = new CartoBackend();
+const backend = createCartoBackend();
 const isMac = process.platform === 'darwin';
 
 const resolveWindowIcon = (): string | undefined => {
