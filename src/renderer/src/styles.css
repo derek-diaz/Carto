@@ -1320,6 +1320,10 @@ body::after {
   grid-template-columns: 170px 1fr 110px;
   gap: 12px;
   padding: 8px 12px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
   border-bottom: 1px solid var(--border-soft);
   align-items: center;
   cursor: pointer;

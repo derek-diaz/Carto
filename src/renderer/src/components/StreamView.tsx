@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
-import { FixedSizeList } from 'react-window';
-import AutoSizer from 'react-virtualized-auto-sizer';
+import { JSX, useEffect, useMemo, useRef, useState } from 'react';
+import type { UIEvent } from 'react';
+import { List } from 'react-window';
+import type { ListImperativeAPI, RowComponentProps } from 'react-window';
+import { AutoSizer } from 'react-virtualized-auto-sizer';
 import type { CartoMessage } from '@shared/types';
 import { formatBytes, formatTime } from '../utils/format';
 import { IconClose, IconFollow, IconHash, IconHighlighter, IconLatest, IconSearch } from './Icons';
@@ -23,8 +24,7 @@ type RowData = {
 };
 
 const StreamView = ({ title, messages, onSelectMessage }: StreamViewProps) => {
-  const listRef = useRef<FixedSizeList<RowData> | null>(null);
-  const listSizeRef = useRef({ height: 0 });
+  const listRef = useRef<ListImperativeAPI | null>(null);
   const [followLatest, setFollowLatest] = useState(true);
   const [keyFilter, setKeyFilter] = useState('');
   const [contentFilter, setContentFilter] = useState('');
@@ -52,27 +52,19 @@ const StreamView = ({ title, messages, onSelectMessage }: StreamViewProps) => {
 
   useEffect(() => {
     if (!followLatest || filteredMessages.length === 0) return;
-    listRef.current?.scrollToItem(filteredMessages.length - 1, 'end');
+    listRef.current?.scrollToRow({ index: filteredMessages.length - 1, align: 'end' });
   }, [filteredMessages.length, followLatest]);
 
   const handleJumpToLatest = () => {
     if (filteredMessages.length === 0) return;
-    listRef.current?.scrollToItem(filteredMessages.length - 1, 'end');
+    listRef.current?.scrollToRow({ index: filteredMessages.length - 1, align: 'end' });
   };
 
-  const handleScroll = ({
-    scrollOffset,
-    scrollUpdateWasRequested
-  }: {
-    scrollOffset: number;
-    scrollUpdateWasRequested: boolean;
-  }) => {
-    if (scrollUpdateWasRequested || !followLatest) return;
-    const height = listSizeRef.current.height;
-    if (!height) return;
-    const totalHeight = filteredMessages.length * ROW_HEIGHT;
-    const maxOffset = Math.max(0, totalHeight - height);
-    const isAtBottom = scrollOffset >= maxOffset - ROW_HEIGHT;
+  const handleScroll = (event: UIEvent<HTMLDivElement>) => {
+    if (!followLatest) return;
+    const target = event.currentTarget;
+    const isAtBottom =
+      target.scrollTop + target.clientHeight >= target.scrollHeight - ROW_HEIGHT;
     if (!isAtBottom) {
       setFollowLatest(false);
     }
@@ -180,9 +172,7 @@ const StreamView = ({ title, messages, onSelectMessage }: StreamViewProps) => {
             type="button"
             disabled={!filtersActive}
           >
-            <span className="button__icon" aria-hidden="true">
-              <IconHighlighter />
-            </span>
+            <span className="button__icon" aria-hidden="true"> <IconHighlighter /> </span>
             Highlight
           </button>
           <button
@@ -207,17 +197,16 @@ const StreamView = ({ title, messages, onSelectMessage }: StreamViewProps) => {
             {messages.length === 0 ? 'Waiting for data...' : 'No matches for current filters.'}
           </div>
         ) : (
-          <AutoSizer>
-            {({ height, width }) => {
-              listSizeRef.current.height = height;
+          <AutoSizer
+            renderProp={({ height, width }) => {
+              if (!height || !width) return null;
               return (
-                <FixedSizeList
-                  ref={listRef}
-                  height={height}
-                  width={width}
-                  itemCount={filteredMessages.length}
-                  itemSize={ROW_HEIGHT}
-                  itemData={{
+                <List
+                  listRef={listRef}
+                  rowCount={filteredMessages.length}
+                  rowHeight={ROW_HEIGHT}
+                  rowComponent={Row}
+                  rowProps={{
                     messages: filteredMessages,
                     onSelect: onSelectMessage,
                     keyFilter: normalizedKeyFilter,
@@ -225,32 +214,48 @@ const StreamView = ({ title, messages, onSelectMessage }: StreamViewProps) => {
                     highlightMatches
                   } satisfies RowData}
                   onScroll={handleScroll}
-                >
-                  {Row}
-                </FixedSizeList>
+                  style={{ height, width }}
+                />
               );
             }}
-          </AutoSizer>
+          />
         )}
       </div>
     </section>
   );
 };
 
-const Row = ({ index, style, data }: { index: number; style: CSSProperties; data: RowData }) => {
-  const msg = data.messages[index];
+const Row = ({
+  index,
+  style,
+  ariaAttributes,
+  messages,
+  onSelect,
+  keyFilter,
+  contentFilter,
+  highlightMatches
+}: RowComponentProps<RowData>) => {
+  const { role: _role, ...rowAria } = ariaAttributes;
+  void _role;
+  const msg = messages[index];
   const preview = buildPreview(msg);
-  const keyNode = highlightText(msg.key, data.keyFilter, data.highlightMatches);
-  const payloadNode = highlightText(preview, data.contentFilter, data.highlightMatches);
+  const keyNode = highlightText(msg.key, keyFilter, highlightMatches);
+  const payloadNode = highlightText(preview, contentFilter, highlightMatches);
   return (
-    <div className="stream__row" style={style} onClick={() => data.onSelect(msg)}>
+    <button
+      type="button"
+      className="stream__row"
+      style={style}
+      onClick={() => onSelect(msg)}
+      {...rowAria}
+    >
       <div className="stream__meta">
         <div className="stream__time">{formatTime(msg.ts)}</div>
         <div className="stream__key">{keyNode}</div>
       </div>
       <div className="stream__payload">{payloadNode}</div>
       <div className="stream__size">{formatBytes(msg.sizeBytes)}</div>
-    </div>
+    </button>
   );
 };
 
