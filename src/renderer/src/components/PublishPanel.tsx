@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PublishEncoding } from '@shared/types';
 import { IconChevronDown, IconPublish } from './Icons';
 
@@ -21,7 +21,32 @@ type PublishPanelProps = {
   onPublish: (keyexpr: string, payload: string, encoding: PublishEncoding) => Promise<void>;
 };
 
-const PublishPanel = ({ connected, publishSupport, draft, onDraftChange, onPublish }: PublishPanelProps) => {
+const mergeHistory = (base: string[], add: string[]) => {
+  const combined = [...add, ...base];
+  const seen = new Set<string>();
+  const next: string[] = [];
+  for (const entry of combined) {
+    if (!seen.has(entry)) {
+      seen.add(entry);
+      next.push(entry);
+    }
+  }
+  return next.slice(0, MAX_KEYEXPR_HISTORY);
+};
+
+const persistHistory = (entries: string[]) => {
+  if ('localStorage' in globalThis) {
+    globalThis.localStorage.setItem(KEYEXPR_HISTORY_KEY, JSON.stringify(entries));
+  }
+};
+
+const PublishPanel = ({
+  connected,
+  publishSupport,
+  draft,
+  onDraftChange,
+  onPublish
+}: PublishPanelProps) => {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ type: 'ok' | 'error'; message: string } | null>(null);
   const [keyexprHistory, setKeyexprHistory] = useState<string[]>([]);
@@ -31,30 +56,11 @@ const PublishPanel = ({ connected, publishSupport, draft, onDraftChange, onPubli
   const historyRef = useRef<string[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const mergeHistory = (base: string[], add: string[]) => {
-    const combined = [...add, ...base];
-    const seen = new Set<string>();
-    const next: string[] = [];
-    for (const entry of combined) {
-      if (!seen.has(entry)) {
-        seen.add(entry);
-        next.push(entry);
-      }
-    }
-    return next.slice(0, MAX_KEYEXPR_HISTORY);
-  };
-
-  const persistHistory = (entries: string[]) => {
-    if ('localStorage' in globalThis) {
-      globalThis.localStorage.setItem(KEYEXPR_HISTORY_KEY, JSON.stringify(entries));
-    }
-  };
-
-  const updateHistory = (entries: string[]) => {
+  const updateHistory = useCallback((entries: string[]) => {
     historyRef.current = entries;
     setKeyexprHistory(entries);
     persistHistory(entries);
-  };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -77,7 +83,7 @@ const PublishPanel = ({ connected, publishSupport, draft, onDraftChange, onPubli
     } catch {
       // ignore history parse errors
     }
-  }, []);
+  }, [updateHistory]);
 
   useEffect(() => {
     if (!showHistory) return;
@@ -126,7 +132,7 @@ const PublishPanel = ({ connected, publishSupport, draft, onDraftChange, onPubli
 
   return (
     <section className="panel panel--publish">
-      <div className="panel__header">
+      <div className="panel_header">
         <h2>Publish</h2>
         <span className={`badge ${connected ? 'badge--ok' : 'badge--idle'}`}>
           {connected ? 'Ready' : 'Offline'}
@@ -137,7 +143,7 @@ const PublishPanel = ({ connected, publishSupport, draft, onDraftChange, onPubli
         <div className="combo" ref={comboRef}>
           <input
             ref={inputRef}
-            className="combo__input"
+            className="combo_input"
             type="text"
             value={draft.keyexpr}
             onChange={(event) => onDraftChange({ ...draft, keyexpr: event.target.value })}
@@ -148,25 +154,25 @@ const PublishPanel = ({ connected, publishSupport, draft, onDraftChange, onPubli
             disabled={!connected || busy}
           />
           <button
-            className="combo__toggle"
+            className="combo_toggle"
             type="button"
             onClick={() => setShowHistory((prev) => !prev)}
             aria-label="Toggle key expression history"
             disabled={!connected || busy}
           >
-            <span className="combo__icon" aria-hidden="true">
+            <span className="combo_icon" aria-hidden="true">
               <IconChevronDown />
             </span>
           </button>
           {showHistory ? (
-            <div className="combo__menu" role="listbox">
+            <div className="combo_menu" role="listbox">
               {keyexprHistory.length === 0 ? (
-                <div className="combo__empty">No saved keyexprs yet.</div>
+                <div className="combo_empty">No saved keyexprs yet.</div>
               ) : (
                 keyexprHistory.map((entry) => (
                   <button
                     key={entry}
-                    className="combo__option"
+                    className="combo_option"
                     type="button"
                     role="option"
                     onClick={() => {
@@ -187,7 +193,7 @@ const PublishPanel = ({ connected, publishSupport, draft, onDraftChange, onPubli
         <span>Encoding</span>
         <div className="segmented">
           <button
-            className={`segmented__button ${draft.encoding === 'json' ? 'segmented__button--active' : ''}`}
+            className={`segmented_button ${draft.encoding === 'json' ? 'segmented_button--active' : ''}`}
             onClick={() => {
               const next: PublishDraft = { ...draft, encoding: 'json' };
               if (!draft.payload.trim()) next.payload = DEFAULT_PUBLISH_JSON;
@@ -199,7 +205,7 @@ const PublishPanel = ({ connected, publishSupport, draft, onDraftChange, onPubli
             JSON
           </button>
           <button
-            className={`segmented__button ${draft.encoding === 'text' ? 'segmented__button--active' : ''}`}
+            className={`segmented_button ${draft.encoding === 'text' ? 'segmented_button--active' : ''}`}
             onClick={() => onDraftChange({ ...draft, encoding: 'text' })}
             type="button"
             disabled={!connected || busy}
@@ -207,7 +213,7 @@ const PublishPanel = ({ connected, publishSupport, draft, onDraftChange, onPubli
             Text
           </button>
           <button
-            className={`segmented__button ${draft.encoding === 'base64' ? 'segmented__button--active' : ''}`}
+            className={`segmented_button ${draft.encoding === 'base64' ? 'segmented_button--active' : ''}`}
             onClick={() => onDraftChange({ ...draft, encoding: 'base64' })}
             type="button"
             disabled={!connected || busy}
@@ -227,20 +233,19 @@ const PublishPanel = ({ connected, publishSupport, draft, onDraftChange, onPubli
           disabled={!connected || busy}
         />
       </label>
-      <div className="panel__actions">
+      <div className="panel_actions">
         <button
           className="button"
           onClick={handlePublish}
           disabled={!connected || busy || !draft.keyexpr.trim()}
         >
-          <span className="button__icon" aria-hidden="true">
+          <span className="button_icon" aria-hidden="true">
             <IconPublish />
-          </span>
-          Send message
+          </span>{' '}Send message
         </button>
       </div>
       {connected && publishSupport === 'unsupported' ? (
-        <div className="panel__error">
+        <div className="panel_error">
           Publishing is not advertised by the current driver. The request may fail.
         </div>
       ) : null}
@@ -254,3 +259,4 @@ const PublishPanel = ({ connected, publishSupport, draft, onDraftChange, onPubli
 };
 
 export default PublishPanel;
+

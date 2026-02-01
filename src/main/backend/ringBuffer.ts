@@ -1,34 +1,42 @@
-export class RingBuffer<T> {
-  private items: T[] = [];
-  private maxSize: number;
+export type RingBuffer<T> = {
+  setMaxSize: (maxSize: number) => void;
+  push: (item: T) => void;
+  clear: () => void;
+  toArray: () => T[];
+  size: () => number;
+};
 
-  constructor(maxSize: number) {
-    this.maxSize = Math.max(1, maxSize);
-  }
+export const createRingBuffer = <T>(maxSize: number): RingBuffer<T> => {
+  let items: T[] = [];
+  let capacity = Math.max(1, maxSize);
 
-  setMaxSize(maxSize: number): void {
-    this.maxSize = Math.max(1, maxSize);
-    if (this.items.length > this.maxSize) {
-      this.items = this.items.slice(this.items.length - this.maxSize);
+  const setMaxSize = (nextMaxSize: number): void => {
+    capacity = Math.max(1, nextMaxSize);
+    if (items.length > capacity) {
+      items = items.slice(items.length - capacity);
     }
-  }
+  };
 
-  push(item: T): void {
-    this.items.push(item);
-    if (this.items.length > this.maxSize) {
-      this.items.shift();
+  const push = (item: T): void => {
+    items.push(item);
+    if (items.length > capacity) {
+      items.shift();
     }
-  }
+  };
 
-  clear(): void {
-    this.items = [];
-  }
+  const clear = (): void => {
+    items = [];
+  };
 
-  toArray(): T[] {
-    return [...this.items];
-  }
+  const toArray = (): T[] => [...items];
 
-  size(): number {
-    return this.items.length;
-  }
-}
+  const size = (): number => items.length;
+
+  return {
+    setMaxSize,
+    push,
+    clear,
+    toArray,
+    size
+  };
+};

@@ -27,7 +27,9 @@ const ConnectPanel = ({ status, defaultEndpoint, onConnect, onDisconnect }: Conn
 
   useEffect(() => {
     if (!defaultEndpoint) return;
-    setEndpoint((current) => (current === DEFAULT_ENDPOINT || !current.trim() ? defaultEndpoint : current));
+    setEndpoint((current) =>
+      current === DEFAULT_ENDPOINT || !current.trim() ? defaultEndpoint : current
+    );
   }, [defaultEndpoint]);
 
   useEffect(() => {
@@ -146,7 +148,7 @@ const ConnectPanel = ({ status, defaultEndpoint, onConnect, onDisconnect }: Conn
 
   return (
     <section className="panel panel--accent">
-      <div className="panel__header">
+      <div className="panel_header">
         <h2>Connect</h2>
         <span className={`badge ${status.connected ? 'badge--ok' : 'badge--idle'}`}>
           {status.connected ? 'Connected' : 'Offline'}
@@ -182,28 +184,25 @@ const ConnectPanel = ({ status, defaultEndpoint, onConnect, onDisconnect }: Conn
           disabled={busy}
         />
       </label>
-      <div className="panel__actions">
+      <div className="panel_actions">
         {status.connected ? (
           <button className="button button--ghost" onClick={handleDisconnect} disabled={busy}>
-            <span className="button__icon" aria-hidden="true">
+            <span className="button_icon" aria-hidden="true">
               <IconLinkOff />
-            </span>
-            Disconnect
+            </span>{' '}Disconnect
           </button>
         ) : (
           <>
             <button className="button" onClick={handleConnect} disabled={busy || !endpoint.trim()}>
-              <span className="button__icon" aria-hidden="true">
+              <span className="button_icon" aria-hidden="true">
                 <IconPlug />
-              </span>
-              Connect
+              </span>{' '}Connect
             </button>
             {busy ? (
               <button className="button button--ghost" onClick={handleCancel} type="button">
-                <span className="button__icon" aria-hidden="true">
+                <span className="button_icon" aria-hidden="true">
                   <IconClose />
-                </span>
-                Cancel
+                </span>{' '}Cancel
               </button>
             ) : null}
           </>
@@ -213,9 +212,10 @@ const ConnectPanel = ({ status, defaultEndpoint, onConnect, onDisconnect }: Conn
         <div className={`notice notice--info notice--info-${infoTone}`}>{infoMessage}</div>
       ) : null}
       {localError ? <div className="notice notice--error">{localError}</div> : null}
-      {status.error ? <div className="panel__error">{status.error}</div> : null}
+      {status.error ? <div className="panel_error">{status.error}</div> : null}
     </section>
   );
 };
 
 export default ConnectPanel;
+

@@ -1,0 +1,24 @@
+{
+  mode: "router",
+  scouting: {
+    multicast: {
+      enabled: false
+    },
+    gossip: {
+      enabled: false
+    }
+  },
+  plugins_loading: {
+    enabled: true,
+    search_dirs: [
+      "/usr/lib",
+      "/usr/local/lib",
+      "/lib"
+    ]
+  },
+  plugins: {
+    remote_api: {
+      websocket_port: "10000"
+    }
+  }
+}
