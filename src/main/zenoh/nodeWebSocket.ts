@@ -1,4 +1,4 @@
-import WebSocket, { type RawData } from 'ws';
+import WebSocket, { type ClientOptions, type RawData } from 'ws';
 
 type CloseEvent = {
   code?: number;
@@ -15,6 +15,22 @@ type ErrorEvent = {
 
 type BinaryType = 'arraybuffer' | 'nodebuffer';
 
+export type CartoWsOptions = ClientOptions & {
+  headers?: Record<string, string>;
+};
+
+export const getGlobalWsOptions = (): CartoWsOptions | undefined =>
+  (globalThis as { __cartoWsOptions?: CartoWsOptions }).__cartoWsOptions;
+
+export const setGlobalWsOptions = (options?: CartoWsOptions | null): void => {
+  const globalWithOptions = globalThis as { __cartoWsOptions?: CartoWsOptions };
+  if (!options) {
+    delete globalWithOptions.__cartoWsOptions;
+    return;
+  }
+  globalWithOptions.__cartoWsOptions = options;
+};
+
 export class NodeWebSocket {
   static readonly CONNECTING = WebSocket.CONNECTING;
   static readonly OPEN = WebSocket.OPEN;
@@ -26,10 +42,11 @@ export class NodeWebSocket {
   onerror?: (event: ErrorEvent) => void;
   onclose?: (event: CloseEvent) => void;
 
-  private socket: WebSocket;
+  private readonly socket: WebSocket;
 
   constructor(url: string, protocols?: string | string[]) {
-    this.socket = new WebSocket(url, protocols);
+    const options = getGlobalWsOptions();
+    this.socket = options ? new WebSocket(url, protocols, options) : new WebSocket(url, protocols);
 
     this.socket.binaryType = 'arraybuffer';
     this.socket.on('open', () => this.onopen?.());
@@ -86,12 +103,15 @@ export class NodeWebSocket {
 const toBuffer = (data: RawData): Buffer => {
   if (Buffer.isBuffer(data)) return data;
   if (Array.isArray(data)) return Buffer.concat(data);
-  return Buffer.from(data);
+  if (ArrayBuffer.isView(data)) {
+    return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  }
+  return Buffer.from(new Uint8Array(data as ArrayBufferLike));
 };
 
 const toArrayBuffer = (data: RawData): ArrayBuffer => {
   const buffer = toBuffer(data);
-  const copy = new Uint8Array(buffer.byteLength);
-  copy.set(buffer);
-  return copy.buffer;
+  const view = new Uint8Array(buffer.byteLength);
+  view.set(buffer);
+  return view.buffer;
 };

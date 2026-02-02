@@ -3,6 +3,8 @@ import type {
   ConnectionStatus,
   ConnectParams,
   ClearBufferParams,
+  ConnectionTestParams,
+  ConnectionTestResult,
   GetRecentKeysParams,
   PauseParams,
   PublishParams,
@@ -13,6 +15,7 @@ import type {
 
 type CartoApi = {
   connect: (params: ConnectParams) => Promise<void>;
+  testConnection: (params: ConnectionTestParams) => Promise<ConnectionTestResult>;
   disconnect: () => Promise<void>;
   subscribe: (params: SubscribeParams) => Promise<string>;
   unsubscribe: (params: UnsubscribeParams) => Promise<void>;

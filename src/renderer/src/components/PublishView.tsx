@@ -1,6 +1,7 @@
 import type { RecentKeyStats } from '@shared/types';
 import KeyExplorer from './KeyExplorer';
 import PublishPanel, { type PublishDraft } from './PublishPanel';
+import type { LogInput, ToastInput } from '../utils/notifications';
 
 type PublishViewProps = {
   connected: boolean;
@@ -8,6 +9,8 @@ type PublishViewProps = {
   draft: PublishDraft;
   onDraftChange: (draft: PublishDraft) => void;
   onPublish: (keyexpr: string, payload: string, encoding: PublishDraft['encoding']) => Promise<void>;
+  onLog: (entry: LogInput) => void;
+  onToast: (toast: ToastInput) => void;
   keys: RecentKeyStats[];
   filter: string;
   onFilterChange: (value: string) => void;
@@ -19,6 +22,8 @@ const PublishView = ({
   draft,
   onDraftChange,
   onPublish,
+  onLog,
+  onToast,
   keys,
   filter,
   onFilterChange
@@ -30,6 +35,8 @@ const PublishView = ({
       draft={draft}
       onDraftChange={onDraftChange}
       onPublish={onPublish}
+      onLog={onLog}
+      onToast={onToast}
     />
     <KeyExplorer keys={keys} filter={filter} onFilterChange={onFilterChange} />
   </div>

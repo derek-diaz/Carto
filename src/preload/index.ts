@@ -4,6 +4,8 @@ import type {
   ConnectionStatus,
   ConnectParams,
   ClearBufferParams,
+  ConnectionTestParams,
+  ConnectionTestResult,
   GetRecentKeysParams,
   PauseParams,
   PublishParams,
@@ -14,6 +16,7 @@ import type {
 
 export type CartoApi = {
   connect: (params: ConnectParams) => Promise<void>;
+  testConnection: (params: ConnectionTestParams) => Promise<ConnectionTestResult>;
   disconnect: () => Promise<void>;
   subscribe: (params: SubscribeParams) => Promise<string>;
   unsubscribe: (params: UnsubscribeParams) => Promise<void>;
@@ -27,6 +30,7 @@ export type CartoApi = {
 
 const api: CartoApi = {
   connect: (params) => ipcRenderer.invoke('carto.connect', params),
+  testConnection: (params) => ipcRenderer.invoke('carto.testConnection', params),
   disconnect: () => ipcRenderer.invoke('carto.disconnect'),
   subscribe: (params) => ipcRenderer.invoke('carto.subscribe', params),
   unsubscribe: (params) => ipcRenderer.invoke('carto.unsubscribe', params),

@@ -67,3 +67,30 @@ npm run dist:mac
 npm run dist:win
 npm run dist:linux
 ```
+
+# Things missing from app
+
+Data Handling
+
+- Export captured messages (JSON/CSV) and import for offline review
+- Persistent capture to disk + playback/replay timeline
+- Message copy buttons (key, payload, full message)
+- Hex/raw byte view in the drawer (beyond base64)
+
+Filtering & Analysis
+
+- Advanced filters (regex, size range, time range, keyexpr include/exclude)
+- Per‑key statistics (rate, bandwidth, last seen trend)
+- Grouping/aggregations (by key, by key prefix)
+- Highlight rules / saved filters
+
+Publish Workflow
+
+- Publish templates/presets and history beyond “last publish”
+- Batch/paste multi‑message publish
+- Schema‑aware editing (JSON schema / protobuf / CBOR decode)
+
+UX/Quality
+
+- Keyboard shortcuts cheat sheet / help
+- Preferences (theme, buffer defaults, polling interval)

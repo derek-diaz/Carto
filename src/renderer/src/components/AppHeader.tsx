@@ -1,8 +1,8 @@
+import type { ConnectionHealth } from '@shared/types';
 import type { PublishDraft } from './PublishPanel';
 import type { Subscription } from '../store/useCarto';
 import {
   IconClock,
-  IconConnection,
   IconCopy,
   IconHash,
   IconLinkOff,
@@ -20,17 +20,15 @@ type ActionNotice = {
 type AppHeaderProps = {
   viewTitle: string;
   viewDescription: string;
-  subscriptionCount: number;
-  bufferedCount: number;
-  keyCount: number;
   statusConnected: boolean;
+  health?: ConnectionHealth;
   endpointLabel: string;
   endpointTitle: string;
   canCopyEndpoint: boolean;
   copied: boolean;
   lastEndpoint: string;
   onCopyEndpoint: () => Promise<void>;
-  view: 'monitor' | 'publish' | 'connection';
+  view: 'monitor' | 'publish' | 'connection' | 'logs';
   selectedSub?: Subscription;
   onTogglePause: () => Promise<void>;
   onClearBuffer: () => Promise<void>;
@@ -43,16 +41,13 @@ type AppHeaderProps = {
   onReplayLast: () => Promise<void>;
   actionNotice: ActionNotice | null;
   onDisconnect: () => Promise<void>;
-  onOpenConnection: () => void;
 };
 
 const AppHeader = ({
   viewTitle,
   viewDescription,
-  subscriptionCount,
-  bufferedCount,
-  keyCount,
   statusConnected,
+  health,
   endpointLabel,
   endpointTitle,
   canCopyEndpoint,
@@ -71,10 +66,51 @@ const AppHeader = ({
   lastPublish,
   onReplayLast,
   actionNotice,
-  onDisconnect,
-  onOpenConnection
-}: AppHeaderProps) => (
-  <header className="app_header">
+  onDisconnect
+}: AppHeaderProps) => {
+  const derivedState = health?.state ?? (statusConnected ? 'connected' : 'disconnected');
+  const statusLabel =
+    derivedState === 'connected'
+      ? 'Live'
+      : derivedState === 'connecting'
+        ? 'Connecting'
+        : derivedState === 'reconnecting'
+          ? 'Reconnecting'
+          : 'Idle';
+  const statusClass =
+    derivedState === 'connected'
+      ? 'status--ok'
+      : derivedState === 'connecting' || derivedState === 'reconnecting'
+        ? 'status--warn'
+        : 'status--idle';
+  const dotClass =
+    derivedState === 'connected'
+      ? 'dot--ok'
+      : derivedState === 'connecting' || derivedState === 'reconnecting'
+        ? 'dot--warn'
+        : 'dot--idle';
+  const statusDetail = (() => {
+    if (!health) return '';
+    if (health.state === 'reconnecting') {
+      const parts = [] as string[];
+      if (health.attempt) parts.push(`Attempt ${health.attempt}.`);
+      if (health.nextRetryMs) {
+        parts.push(`Next retry in ${Math.round(health.nextRetryMs / 1000)}s.`);
+      }
+      if (health.lastError) parts.push(`Last error: ${health.lastError}`);
+      return parts.join(' ');
+    }
+    if (health.state === 'connecting') {
+      return 'Connecting to the router.';
+    }
+    if (health.lastError) {
+      return `Last error: ${health.lastError}`;
+    }
+    return '';
+  })();
+
+  return (
+    <header className="app_header">
     <div className="app_header-left">
       <div className="app_title">
         <h1>{viewTitle}</h1>
@@ -82,21 +118,8 @@ const AppHeader = ({
       </div>
     </div>
     <div className="app_header-right">
-      <div className="app_stats">
-        <div className="stat">
-          <span className="stat_label">Subscriptions</span>{' '}<span className="stat_value">{subscriptionCount}</span>
-        </div>
-        <div className="stat">
-          <span className="stat_label">Buffered</span>{' '}<span className="stat_value">{bufferedCount}</span>
-        </div>
-        <div className="stat">
-          <span className="stat_label">Keys</span>{' '}<span className="stat_value">{keyCount}</span>
-        </div>
-      </div>
-      <div className={`status ${statusConnected ? 'status--ok' : 'status--idle'}`}>
-        <span className={`dot ${statusConnected ? 'dot--ok' : 'dot--idle'}`} />{' '}<span>
-          {statusConnected ? 'Live' : 'Idle'}
-        </span>
+      <div className={`status ${statusClass}`} title={statusDetail || undefined}>
+        <span className={`dot ${dotClass}`} />{' '}<span>{statusLabel}</span>
       </div>
       <div className="header-endpoint" title={endpointTitle}>
         <span className="header-endpoint_label">
@@ -187,18 +210,7 @@ const AppHeader = ({
               <IconLinkOff />
             </span>{' '}Disconnect
           </button>
-        ) : (
-          <button
-            className="button button--compact"
-            onClick={onOpenConnection}
-            title="Connection (Ctrl/Cmd+3)"
-            type="button"
-          >
-            <span className="button_icon" aria-hidden="true">
-              <IconConnection />
-            </span>{' '}Connect
-          </button>
-        )}
+        ) : null}
         {actionNotice ? (
           <span className={`header-notice header-notice--${actionNotice.type}`}>
             {actionNotice.message}
@@ -207,7 +219,8 @@ const AppHeader = ({
       </div>
     </div>
   </header>
-);
+  );
+};
 
 export default AppHeader;
 

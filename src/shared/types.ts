@@ -26,6 +26,7 @@ export type ConnectionStatus = {
   connected: boolean;
   error?: string;
   capabilities?: Capabilities;
+  health?: ConnectionHealth;
 };
 
 export type RecentKeyStats = {
@@ -40,6 +41,60 @@ export type ConnectParams = {
   endpoint: string;
   mode?: 'client';
   configJson?: string;
+  auth?: AuthConfig;
+  tls?: TlsConfig;
+  reconnect?: ReconnectConfig;
+  healthCheckIntervalMs?: number;
+};
+
+export type AuthConfig = {
+  type: 'none' | 'basic' | 'bearer' | 'header';
+  username?: string;
+  password?: string;
+  token?: string;
+  headerName?: string;
+  headerValue?: string;
+};
+
+export type TlsConfig = {
+  caPath?: string;
+  certPath?: string;
+  keyPath?: string;
+  rejectUnauthorized?: boolean;
+};
+
+export type ReconnectConfig = {
+  enabled: boolean;
+  baseDelayMs?: number;
+  maxDelayMs?: number;
+  maxAttempts?: number;
+  jitter?: boolean;
+};
+
+export type ConnectionHealth = {
+  state: 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
+  attempt?: number;
+  nextRetryMs?: number;
+  lastError?: string;
+  lastConnectedAt?: number;
+  lastDisconnectedAt?: number;
+  lastHeartbeatAt?: number;
+};
+
+export type ConnectionTestParams = {
+  endpoint: string;
+  configJson?: string;
+  auth?: AuthConfig;
+  tls?: TlsConfig;
+  timeoutMs?: number;
+};
+
+export type ConnectionTestResult = {
+  ok: boolean;
+  durationMs: number;
+  error?: string;
+  hint?: string;
+  capabilities?: Capabilities;
 };
 
 export type SubscribeParams = {

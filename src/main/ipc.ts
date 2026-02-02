@@ -2,6 +2,8 @@ import { ipcMain } from 'electron';
 import type {
   ClearBufferParams,
   ConnectParams,
+  ConnectionTestParams,
+  ConnectionTestResult,
   GetRecentKeysParams,
   PauseParams,
   PublishParams,
@@ -13,6 +15,11 @@ import type { CartoBackend } from './backend/cartoBackend';
 export const registerIpc = (backend: CartoBackend): void => {
   ipcMain.handle('carto.connect', async (_event, params: ConnectParams) => {
     await backend.connect(params);
+  });
+
+  ipcMain.handle('carto.testConnection', async (_event, params: ConnectionTestParams) => {
+    const result: ConnectionTestResult = await backend.testConnection(params);
+    return result;
   });
 
   ipcMain.handle('carto.disconnect', async () => {

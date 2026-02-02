@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PublishEncoding } from '@shared/types';
+import type { LogInput, ToastInput } from '../utils/notifications';
 import { IconChevronDown, IconPublish } from './Icons';
 
 export const DEFAULT_PUBLISH_KEYEXPR = 'demo/publish';
@@ -19,6 +20,8 @@ type PublishPanelProps = {
   draft: PublishDraft;
   onDraftChange: (next: PublishDraft) => void;
   onPublish: (keyexpr: string, payload: string, encoding: PublishEncoding) => Promise<void>;
+  onLog: (entry: LogInput) => void;
+  onToast: (toast: ToastInput) => void;
 };
 
 const mergeHistory = (base: string[], add: string[]) => {
@@ -45,29 +48,21 @@ const PublishPanel = ({
   publishSupport,
   draft,
   onDraftChange,
-  onPublish
+  onPublish,
+  onLog,
+  onToast
 }: PublishPanelProps) => {
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<{ type: 'ok' | 'error'; message: string } | null>(null);
   const [keyexprHistory, setKeyexprHistory] = useState<string[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const comboRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const historyRef = useRef<string[]>([]);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const updateHistory = useCallback((entries: string[]) => {
     historyRef.current = entries;
     setKeyexprHistory(entries);
     persistHistory(entries);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-      }
-    };
   }, []);
 
   useEffect(() => {
@@ -99,10 +94,6 @@ const PublishPanel = ({
   const handlePublish = async () => {
     if (!connected) return;
     const nextKeyexpr = draft.keyexpr.trim();
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-    }
-    setNotice(null);
     setBusy(true);
     try {
       await onPublish(nextKeyexpr, draft.payload, draft.encoding);
@@ -110,11 +101,12 @@ const PublishPanel = ({
         const next = mergeHistory(historyRef.current, [nextKeyexpr]);
         updateHistory(next);
       }
-      setNotice({ type: 'ok', message: 'Sent.' });
-      timerRef.current = setTimeout(() => setNotice(null), 2000);
+      onToast({ type: 'ok', message: 'Sent', detail: nextKeyexpr });
+      onLog({ level: 'info', source: 'publish', message: `Published to ${nextKeyexpr}.` });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setNotice({ type: 'error', message });
+      onToast({ type: 'error', message: 'Publish failed', detail: message });
+      onLog({ level: 'error', source: 'publish', message, detail: nextKeyexpr });
     } finally {
       setBusy(false);
     }
@@ -247,11 +239,6 @@ const PublishPanel = ({
       {connected && publishSupport === 'unsupported' ? (
         <div className="panel_error">
           Publishing is not advertised by the current driver. The request may fail.
-        </div>
-      ) : null}
-      {notice ? (
-        <div className={`notice ${notice.type === 'ok' ? 'notice--ok' : 'notice--error'}`}>
-          {notice.message}
         </div>
       ) : null}
     </section>

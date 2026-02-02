@@ -37,4 +37,5 @@ export interface ZenohDriver {
   unsubscribe(subscriptionId: string): Promise<void>;
   publish(options: PublishOptions): Promise<void>;
   pause?(subscriptionId: string, paused: boolean): Promise<void>;
+  healthCheck?(): Promise<void>;
 }

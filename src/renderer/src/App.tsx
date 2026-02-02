@@ -1,17 +1,31 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { CartoMessage } from '@shared/types';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { CartoMessage, ConnectionStatus } from '@shared/types';
 import AppHeader from './components/AppHeader';
 import AppRail from './components/AppRail';
 import ConnectionView from './components/ConnectionView';
+import LogsView from './components/LogsView';
 import MonitorView from './components/MonitorView';
 import MessageDrawer from './components/MessageDrawer';
 import PublishView from './components/PublishView';
+import ToastStack from './components/ToastStack';
 import {
   DEFAULT_PUBLISH_JSON,
   DEFAULT_PUBLISH_KEYEXPR,
   type PublishDraft
 } from './components/PublishPanel';
 import { useCarto } from './store/useCarto';
+import type { LogEntry, LogInput, Toast, ToastInput } from './utils/notifications';
+
+const MAX_LOGS = 200;
+const MAX_TOASTS = 4;
+const DEFAULT_TOAST_MS = 3500;
+const ERROR_TOAST_MS = 6000;
+
+const createId = () => {
+  const cryptoObj = globalThis.crypto as { randomUUID?: () => string } | undefined;
+  if (cryptoObj?.randomUUID) return cryptoObj.randomUUID();
+  return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
 
 const App = () => {
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -32,6 +46,7 @@ const App = () => {
     setRecentKeysFilter,
     selectedMessages,
     connect,
+    testConnection,
     disconnect,
     subscribe,
     unsubscribe,
@@ -39,6 +54,12 @@ const App = () => {
     clearBuffer,
     publish
   } = useCarto();
+
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const toastTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const prevStatusRef = useRef<ConnectionStatus | null>(null);
+  const prevConnectedRef = useRef(status.connected);
 
   const [selectedMessage, setSelectedMessage] = useState<CartoMessage | null>(null);
   const [copied, setCopied] = useState(false);
@@ -54,28 +75,103 @@ const App = () => {
   } | null>(null);
   const [showSubscribe, setShowSubscribe] = useState(false);
 
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((toast) => toast.id !== id));
+    const timer = toastTimers.current.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      toastTimers.current.delete(id);
+    }
+  }, []);
+
+  const addToast = useCallback(
+    (toast: ToastInput) => {
+      const id = createId();
+      const entry: Toast = { ...toast, id, ts: Date.now() };
+      setToasts((prev) => {
+        const next = [entry, ...prev];
+        const trimmed = next.slice(0, MAX_TOASTS);
+        const trimmedIds = new Set(trimmed.map((item) => item.id));
+        for (const item of prev) {
+          if (!trimmedIds.has(item.id)) {
+            const timer = toastTimers.current.get(item.id);
+            if (timer) clearTimeout(timer);
+            toastTimers.current.delete(item.id);
+          }
+        }
+        return trimmed;
+      });
+
+      const durationMs =
+        toast.durationMs ?? (toast.type === 'error' ? ERROR_TOAST_MS : DEFAULT_TOAST_MS);
+      if (durationMs > 0) {
+        const timer = setTimeout(() => dismissToast(id), durationMs);
+        toastTimers.current.set(id, timer);
+      }
+    },
+    [dismissToast]
+  );
+
+  const addLog = useCallback((entry: LogInput) => {
+    setLogs((prev) => {
+      const next = [{ ...entry, id: createId(), ts: Date.now() }, ...prev];
+      return next.slice(0, MAX_LOGS);
+    });
+  }, []);
+
+  const clearLogs = useCallback(() => {
+    setLogs([]);
+  }, []);
+
   useEffect(() => {
     setSelectedMessage(null);
   }, [selectedSubId]);
 
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    if (prev && status.connected !== prev.connected) {
+      addLog({
+        level: status.connected ? 'info' : 'warn',
+        source: 'connection',
+        message: status.connected ? 'Connected.' : 'Disconnected.'
+      });
+    }
+    if (status.health?.state && status.health.state !== prev?.health?.state) {
+      if (status.health.state === 'reconnecting' || status.health.state === 'connecting') {
+        addLog({
+          level: status.health.state === 'reconnecting' ? 'warn' : 'info',
+          source: 'connection',
+          message: `Connection state: ${status.health.state}.`,
+          detail: status.health.lastError
+        });
+      }
+    }
+    if (status.error && status.error !== prev?.error) {
+      addToast({ type: 'error', message: 'Connection error', detail: status.error });
+      addLog({ level: 'error', source: 'connection', message: status.error });
+    }
+    prevStatusRef.current = status;
+  }, [addLog, addToast, status]);
+
   const selectedSub = subscriptions.find((sub) => sub.id === selectedSubId);
   const streamTitle = selectedSub ? `Stream - ${selectedSub.keyexpr}` : 'Stream';
-  const subscriptionCount = subscriptions.length;
-  const bufferedCount = selectedMessages.length;
   const activeKeys = selectedSubId ? selectedRecentKeys : recentKeys;
-  const [view, setView] = useState<'monitor' | 'publish' | 'connection'>(
+  const [view, setView] = useState<'monitor' | 'publish' | 'connection' | 'logs'>(
     status.connected ? 'monitor' : 'connection'
   );
   const [monitorTab, setMonitorTab] = useState<'stream' | 'keys'>('stream');
-  const keyCount = activeKeys.length;
 
   useEffect(() => {
-    if (!status.connected) {
+    const wasConnected = prevConnectedRef.current;
+    prevConnectedRef.current = status.connected;
+    if (!status.connected && status.health?.state === 'disconnected' && view !== 'logs') {
       setView('connection');
       return;
     }
-    setView((current) => (current === 'connection' ? 'monitor' : current));
-  }, [status.connected]);
+    if (!wasConnected && status.connected && view === 'connection') {
+      setView('monitor');
+    }
+  }, [status.connected, status.health?.state, view]);
 
   useEffect(() => {
     if (subscriptions.length === 0) {
@@ -103,6 +199,14 @@ const App = () => {
     return () => globalThis.clearTimeout(timer);
   }, [actionNotice]);
 
+  useEffect(() => {
+    const timers = toastTimers.current;
+    return () => {
+      timers.forEach((timer) => clearTimeout(timer));
+      timers.clear();
+    };
+  }, []);
+
   const publishSupport = useMemo<'supported' | 'unknown' | 'unsupported'>(() => {
     const features = status.capabilities?.features;
     if (!features || features.length === 0) return 'unknown';
@@ -115,6 +219,8 @@ const App = () => {
         return 'Monitor';
       case 'publish':
         return 'Publish';
+      case 'logs':
+        return 'Logs';
       default:
         return 'Connection';
     }
@@ -135,6 +241,9 @@ const App = () => {
       }
       return 'Publishing capability unknown.';
     }
+    if (view === 'logs') {
+      return 'Connection events and errors.';
+    }
     return status.connected ? 'Connected to the router.' : 'Configure and connect to a router.';
   }, [publishSupport, selectedSub, status.connected, view]);
 
@@ -149,10 +258,6 @@ const App = () => {
   const useKeyexprTitle = canUseKeyexpr
     ? `${useKeyexprLabel}: ${selectedKeyexpr ?? recentKeyexpr ?? ''}`
     : 'No keys available yet';
-  const handleOpenConnection = useCallback(() => {
-    setView('connection');
-  }, []);
-
   const handleCopyEndpoint = useCallback(async () => {
     if (!lastEndpoint || !canCopyEndpoint) return;
     try {
@@ -195,8 +300,11 @@ const App = () => {
       await disconnect();
     } catch {
       // ignore disconnect errors
+      const message = 'Disconnect failed.';
+      addToast({ type: 'error', message });
+      addLog({ level: 'error', source: 'connection', message });
     }
-  }, [disconnect]);
+  }, [addLog, addToast, disconnect]);
 
   const handleUseKeyexpr = useCallback(() => {
     const nextKeyexpr = selectedKeyexpr ?? recentKeyexpr;
@@ -214,11 +322,18 @@ const App = () => {
     try {
       await publish(lastPublish.keyexpr, lastPublish.payload, lastPublish.encoding);
       setActionNotice({ type: 'ok', message: 'Replayed last publish.' });
+      addLog({
+        level: 'info',
+        source: 'publish',
+        message: `Replayed ${lastPublish.keyexpr}.`
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setActionNotice({ type: 'error', message });
+      addToast({ type: 'error', message: 'Replay failed', detail: message });
+      addLog({ level: 'error', source: 'publish', message, detail: lastPublish.keyexpr });
     }
-  }, [lastPublish, publish, status.connected]);
+  }, [addLog, addToast, lastPublish, publish, status.connected]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -249,6 +364,16 @@ const App = () => {
       if (event.code === 'Digit3') {
         event.preventDefault();
         setView('connection');
+        return;
+      }
+      if (event.code === 'Digit4') {
+        event.preventDefault();
+        setView('logs');
+        return;
+      }
+      if (event.code === 'Digit4') {
+        event.preventDefault();
+        setView('logs');
         return;
       }
 
@@ -309,10 +434,8 @@ const App = () => {
           <AppHeader
             viewTitle={viewTitle}
             viewDescription={viewDescription}
-            subscriptionCount={subscriptionCount}
-            bufferedCount={bufferedCount}
-            keyCount={keyCount}
             statusConnected={status.connected}
+            health={status.health}
             endpointLabel={endpointLabel}
             endpointTitle={endpointTitle}
             canCopyEndpoint={canCopyEndpoint}
@@ -332,7 +455,6 @@ const App = () => {
             onReplayLast={handleReplayLast}
             actionNotice={actionNotice}
             onDisconnect={handleDisconnect}
-            onOpenConnection={handleOpenConnection}
           />
 
           <div className="app_body">
@@ -356,6 +478,8 @@ const App = () => {
                 onPause={setPaused}
                 onClear={clearBuffer}
                 onSelectMessage={setSelectedMessage}
+                onLog={addLog}
+                onToast={addToast}
               />
             ) : null}
 
@@ -366,6 +490,8 @@ const App = () => {
                 draft={publishDraft}
                 onDraftChange={setPublishDraft}
                 onPublish={handlePublish}
+                onLog={addLog}
+                onToast={addToast}
                 keys={activeKeys}
                 filter={recentKeysFilter}
                 onFilterChange={setRecentKeysFilter}
@@ -377,14 +503,20 @@ const App = () => {
                 status={status}
                 defaultEndpoint={lastEndpoint || undefined}
                 onConnect={connect}
+                onTestConnection={testConnection}
                 onDisconnect={disconnect}
+                onLog={addLog}
+                onToast={addToast}
               />
             ) : null}
+
+            {view === 'logs' ? <LogsView logs={logs} onClearLogs={clearLogs} /> : null}
           </div>
         </div>
       </div>
 
       <MessageDrawer message={selectedMessage} onClose={() => setSelectedMessage(null)} />
+      {toasts.length > 0 ? <ToastStack toasts={toasts} onDismiss={dismissToast} /> : null}
     </div>
   );
 };
