@@ -15,16 +15,33 @@ import {
 } from './components/PublishPanel';
 import { useCarto } from './store/useCarto';
 import type { LogEntry, LogInput, Toast, ToastInput } from './utils/notifications';
+import {
+  decodeProtoPayload,
+  encodeProtoPayload,
+  parseProtoSchema,
+  type DecoderConfig,
+  type ProtoSchema,
+  type ProtoTypeHandle,
+  type ProtoTypeOption
+} from './utils/proto';
+import { base64ToBytes, bytesToBase64 } from './utils/base64';
 
 const MAX_LOGS = 200;
 const MAX_TOASTS = 4;
 const DEFAULT_TOAST_MS = 3500;
 const ERROR_TOAST_MS = 6000;
+const PROTO_STORAGE_KEY = 'carto.proto.schemas';
 
 const createId = () => {
   const cryptoObj = globalThis.crypto as { randomUUID?: () => string } | undefined;
   if (cryptoObj?.randomUUID) return cryptoObj.randomUUID();
   return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
+
+type StoredProtoSchema = {
+  id: string;
+  name: string;
+  source: string;
 };
 
 const App = () => {
@@ -60,13 +77,18 @@ const App = () => {
   const toastTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const prevStatusRef = useRef<ConnectionStatus | null>(null);
   const prevConnectedRef = useRef(status.connected);
+  const [protoSchemas, setProtoSchemas] = useState<ProtoSchema[]>([]);
+  const [subscriptionDecoders, setSubscriptionDecoders] = useState<
+    Record<string, DecoderConfig | undefined>
+  >({});
 
   const [selectedMessage, setSelectedMessage] = useState<CartoMessage | null>(null);
   const [copied, setCopied] = useState(false);
   const [publishDraft, setPublishDraft] = useState<PublishDraft>({
     keyexpr: DEFAULT_PUBLISH_KEYEXPR,
     encoding: 'json',
-    payload: DEFAULT_PUBLISH_JSON
+    payload: DEFAULT_PUBLISH_JSON,
+    protoTypeId: undefined
   });
   const [lastPublish, setLastPublish] = useState<PublishDraft | null>(null);
   const [actionNotice, setActionNotice] = useState<{
@@ -123,9 +145,139 @@ const App = () => {
     setLogs([]);
   }, []);
 
+  const protoTypeOptions = useMemo<ProtoTypeOption[]>(() => {
+    return protoSchemas.flatMap((schema) =>
+      schema.types.map((type) => ({
+        ...type,
+        label: `${schema.name} • ${type.name}`,
+        schemaName: schema.name
+      }))
+    );
+  }, [protoSchemas]);
+
+  const protoTypeById = useMemo(() => {
+    const map = new Map<string, ProtoTypeHandle>();
+    protoSchemas.forEach((schema) => {
+      schema.types.forEach((type) => {
+        map.set(type.id, { ...type, root: schema.root, schemaName: schema.name });
+      });
+    });
+    return map;
+  }, [protoSchemas]);
+
+  const protoTypeLabels = useMemo(() => {
+    const labels: Record<string, string> = {};
+    protoTypeOptions.forEach((type) => {
+      labels[type.id] = type.label;
+    });
+    return labels;
+  }, [protoTypeOptions]);
+
+  const persistProtoSchemas = useCallback((schemas: ProtoSchema[]) => {
+    if (!('localStorage' in globalThis)) return;
+    const payload: StoredProtoSchema[] = schemas.map((schema) => ({
+      id: schema.id,
+      name: schema.name,
+      source: schema.source
+    }));
+    globalThis.localStorage.setItem(PROTO_STORAGE_KEY, JSON.stringify(payload));
+  }, []);
+
+  const addProtoSchema = useCallback(
+    (name: string, source: string): boolean => {
+      try {
+        const schemaId = createId();
+        const schema = parseProtoSchema(schemaId, name, source);
+        setProtoSchemas((prev) => {
+          const next = [schema, ...prev];
+          persistProtoSchemas(next);
+          return next;
+        });
+        addToast({ type: 'ok', message: 'Schema added', detail: name });
+        addLog({ level: 'info', source: 'protobuf', message: `Schema added: ${name}.` });
+        return true;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        addToast({ type: 'error', message: 'Failed to parse schema', detail: message });
+        addLog({ level: 'error', source: 'protobuf', message });
+        return false;
+      }
+    },
+    [addLog, addToast, persistProtoSchemas]
+  );
+
+  const removeProtoSchema = useCallback(
+    (schemaId: string) => {
+      setProtoSchemas((prev) => {
+        const next = prev.filter((schema) => schema.id !== schemaId);
+        persistProtoSchemas(next);
+        return next;
+      });
+      setSubscriptionDecoders((prev) => {
+        const next = { ...prev };
+        Object.entries(next).forEach(([key, decoder]) => {
+          if (decoder?.kind === 'protobuf' && decoder.typeId.startsWith(`${schemaId}:`)) {
+            next[key] = { kind: 'raw' };
+          }
+        });
+        return next;
+      });
+      addToast({ type: 'info', message: 'Schema removed' });
+      addLog({ level: 'info', source: 'protobuf', message: 'Schema removed.' });
+    },
+    [addLog, addToast, persistProtoSchemas]
+  );
+
+  const decodeProtobuf = useCallback(
+    (decoder: DecoderConfig | undefined, base64: string | undefined) => {
+      if (!decoder || decoder.kind !== 'protobuf' || !base64) return null;
+      const handle = protoTypeById.get(decoder.typeId);
+      if (!handle) {
+        return { error: 'Protobuf type is no longer available.' };
+      }
+      try {
+        const bytes = base64ToBytes(base64);
+        const decoded = decodeProtoPayload(handle, bytes);
+        return { data: decoded, label: handle.name, schemaName: handle.schemaName };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { error: message };
+      }
+    },
+    [protoTypeById]
+  );
+
   useEffect(() => {
     setSelectedMessage(null);
   }, [selectedSubId]);
+
+  useEffect(() => {
+    if (!('localStorage' in globalThis)) return;
+    const stored = globalThis.localStorage.getItem(PROTO_STORAGE_KEY);
+    if (!stored) return;
+    try {
+      const parsed = JSON.parse(stored) as StoredProtoSchema[];
+      if (!Array.isArray(parsed)) return;
+      const next: ProtoSchema[] = [];
+      parsed.forEach((entry) => {
+        if (!entry || typeof entry !== 'object') return;
+        if (typeof entry.id !== 'string' || typeof entry.name !== 'string') return;
+        if (typeof entry.source !== 'string') return;
+        try {
+          next.push(parseProtoSchema(entry.id, entry.name, entry.source));
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          addToast({ type: 'warn', message: 'Skipped proto schema', detail: entry.name });
+          addLog({ level: 'warn', source: 'protobuf', message });
+        }
+      });
+      setProtoSchemas(next);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      addToast({ type: 'warn', message: 'Failed to load proto schemas', detail: message });
+      addLog({ level: 'warn', source: 'protobuf', message });
+    }
+  }, [addLog, addToast]);
 
   useEffect(() => {
     const prev = prevStatusRef.current;
@@ -154,6 +306,11 @@ const App = () => {
   }, [addLog, addToast, status]);
 
   const selectedSub = subscriptions.find((sub) => sub.id === selectedSubId);
+  const selectedDecoder = selectedSubId ? subscriptionDecoders[selectedSubId] : undefined;
+  const protoResult = useMemo(
+    () => decodeProtobuf(selectedDecoder, selectedMessage?.base64),
+    [decodeProtobuf, selectedDecoder, selectedMessage?.base64]
+  );
   const streamTitle = selectedSub ? `Stream - ${selectedSub.keyexpr}` : 'Stream';
   const activeKeys = selectedSubId ? selectedRecentKeys : recentKeys;
   const [view, setView] = useState<'monitor' | 'publish' | 'connection' | 'logs'>(
@@ -269,20 +426,62 @@ const App = () => {
   }, [canCopyEndpoint, lastEndpoint]);
 
   const handlePublish = useCallback(
-    async (keyexpr: string, payload: string, encoding: PublishDraft['encoding']) => {
+    async (
+      keyexpr: string,
+      payload: string,
+      encoding: PublishDraft['encoding'],
+      protoTypeId?: string
+    ) => {
+      if (encoding === 'protobuf') {
+        if (!protoTypeId) {
+          throw new Error('Select a protobuf message type before publishing.');
+        }
+        const handle = protoTypeById.get(protoTypeId);
+        if (!handle) {
+          throw new Error('Selected protobuf type is not available.');
+        }
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(payload);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          throw new Error(`Invalid JSON payload. ${message}`);
+        }
+        const bytes = encodeProtoPayload(handle, parsed);
+        const encoded = bytesToBase64(bytes);
+        await publish(keyexpr, encoded, 'base64');
+        setLastPublish({ keyexpr, payload, encoding, protoTypeId });
+        return;
+      }
       await publish(keyexpr, payload, encoding);
       setLastPublish({ keyexpr, payload, encoding });
     },
-    [publish]
+    [protoTypeById, publish]
   );
 
   const handleSubscribe = useCallback(
-    async (keyexpr: string, bufferSize?: number) => {
+    async (keyexpr: string, bufferSize?: number, decoder?: DecoderConfig) => {
       const subscriptionId = await subscribe(keyexpr, bufferSize);
+      setSubscriptionDecoders((prev) => ({
+        ...prev,
+        [subscriptionId]: decoder ?? { kind: 'raw' }
+      }));
       setShowSubscribe(false);
       return subscriptionId;
     },
     [subscribe]
+  );
+
+  const handleUnsubscribe = useCallback(
+    async (subscriptionId: string) => {
+      await unsubscribe(subscriptionId);
+      setSubscriptionDecoders((prev) => {
+        const next = { ...prev };
+        delete next[subscriptionId];
+        return next;
+      });
+    },
+    [unsubscribe]
   );
 
   const handleTogglePause = useCallback(async () => {
@@ -298,6 +497,7 @@ const App = () => {
   const handleDisconnect = useCallback(async () => {
     try {
       await disconnect();
+      setSubscriptionDecoders({});
     } catch {
       // ignore disconnect errors
       const message = 'Disconnect failed.';
@@ -320,7 +520,12 @@ const App = () => {
   const handleReplayLast = useCallback(async () => {
     if (!lastPublish || !status.connected) return;
     try {
-      await publish(lastPublish.keyexpr, lastPublish.payload, lastPublish.encoding);
+      await handlePublish(
+        lastPublish.keyexpr,
+        lastPublish.payload,
+        lastPublish.encoding,
+        lastPublish.protoTypeId
+      );
       setActionNotice({ type: 'ok', message: 'Replayed last publish.' });
       addLog({
         level: 'info',
@@ -333,7 +538,7 @@ const App = () => {
       addToast({ type: 'error', message: 'Replay failed', detail: message });
       addLog({ level: 'error', source: 'publish', message, detail: lastPublish.keyexpr });
     }
-  }, [addLog, addToast, lastPublish, publish, status.connected]);
+  }, [addLog, addToast, handlePublish, lastPublish, status.connected]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -364,11 +569,6 @@ const App = () => {
       if (event.code === 'Digit3') {
         event.preventDefault();
         setView('connection');
-        return;
-      }
-      if (event.code === 'Digit4') {
-        event.preventDefault();
-        setView('logs');
         return;
       }
       if (event.code === 'Digit4') {
@@ -474,12 +674,15 @@ const App = () => {
                 showSubscribe={showSubscribe}
                 setShowSubscribe={setShowSubscribe}
                 onSubscribe={handleSubscribe}
-                onUnsubscribe={unsubscribe}
+                onUnsubscribe={handleUnsubscribe}
                 onPause={setPaused}
                 onClear={clearBuffer}
                 onSelectMessage={setSelectedMessage}
                 onLog={addLog}
                 onToast={addToast}
+                protoTypes={protoTypeOptions}
+                decoderById={subscriptionDecoders}
+                protoTypeLabels={protoTypeLabels}
               />
             ) : null}
 
@@ -492,6 +695,7 @@ const App = () => {
                 onPublish={handlePublish}
                 onLog={addLog}
                 onToast={addToast}
+                protoTypes={protoTypeOptions}
                 keys={activeKeys}
                 filter={recentKeysFilter}
                 onFilterChange={setRecentKeysFilter}
@@ -504,9 +708,12 @@ const App = () => {
                 defaultEndpoint={lastEndpoint || undefined}
                 onConnect={connect}
                 onTestConnection={testConnection}
-                onDisconnect={disconnect}
+                onDisconnect={handleDisconnect}
                 onLog={addLog}
                 onToast={addToast}
+                schemas={protoSchemas}
+                onAddSchema={addProtoSchema}
+                onRemoveSchema={removeProtoSchema}
               />
             ) : null}
 
@@ -515,7 +722,11 @@ const App = () => {
         </div>
       </div>
 
-      <MessageDrawer message={selectedMessage} onClose={() => setSelectedMessage(null)} />
+      <MessageDrawer
+        message={selectedMessage}
+        protoResult={protoResult}
+        onClose={() => setSelectedMessage(null)}
+      />
       {toasts.length > 0 ? <ToastStack toasts={toasts} onDismiss={dismissToast} /> : null}
     </div>
   );

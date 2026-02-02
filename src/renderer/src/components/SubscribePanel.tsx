@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Subscription } from '../store/useCarto';
 import type { LogInput, ToastInput } from '../utils/notifications';
+import type { DecoderConfig, ProtoTypeOption } from '../utils/proto';
 import {
   IconChevronDown,
   IconClose,
@@ -20,13 +21,16 @@ type SubscribePanelProps = {
   connected: boolean;
   subscriptions: Subscription[];
   selectedSubId: string | null;
-  onSubscribe: (keyexpr: string, bufferSize?: number) => Promise<string>;
+  onSubscribe: (keyexpr: string, bufferSize?: number, decoder?: DecoderConfig) => Promise<string>;
   onUnsubscribe: (subscriptionId: string) => Promise<void>;
   onPause: (subscriptionId: string, paused: boolean) => Promise<void>;
   onClear: (subscriptionId: string) => Promise<void>;
   onSelect: (subscriptionId: string) => void;
   onLog: (entry: LogInput) => void;
   onToast: (toast: ToastInput) => void;
+  protoTypes: ProtoTypeOption[];
+  decoderById: Record<string, DecoderConfig | undefined>;
+  protoTypeLabels: Record<string, string>;
   onClose?: () => void;
 };
 
@@ -60,6 +64,9 @@ const SubscribePanel = ({
   onSelect,
   onLog,
   onToast,
+  protoTypes,
+  decoderById,
+  protoTypeLabels,
   onClose
 }: SubscribePanelProps) => {
   const [keyexpr, setKeyexpr] = useState(DEFAULT_KEYEXPR);
@@ -68,6 +75,8 @@ const SubscribePanel = ({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [decoderMode, setDecoderMode] = useState<'raw' | 'protobuf'>('raw');
+  const [protoTypeId, setProtoTypeId] = useState('');
   const comboRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const historyRef = useRef<string[]>([]);
@@ -126,6 +135,13 @@ const SubscribePanel = ({
     return () => document.removeEventListener('mousedown', handlePointerDown);
   }, [showHistory]);
 
+  useEffect(() => {
+    if (decoderMode !== 'protobuf') return;
+    if (!protoTypeId) return;
+    if (protoTypes.some((type) => type.id === protoTypeId)) return;
+    setProtoTypeId('');
+  }, [decoderMode, protoTypeId, protoTypes]);
+
   const reportError = (source: string, message: string, detail?: string) => {
     setError(message);
     onToast({ type: 'error', message, detail });
@@ -153,11 +169,24 @@ const SubscribePanel = ({
       return;
     }
 
+    if (decoderMode === 'protobuf' && !protoTypeId) {
+      setError('Select a protobuf type before subscribing.');
+      return;
+    }
+
     setBusy(true);
     setError(null);
     try {
       const size = Number(bufferSize);
-      await onSubscribe(nextKeyexpr, Number.isFinite(size) && size > 0 ? size : undefined);
+      const decoder: DecoderConfig | undefined =
+        decoderMode === 'protobuf' && protoTypeId
+          ? { kind: 'protobuf', typeId: protoTypeId }
+          : { kind: 'raw' };
+      await onSubscribe(
+        nextKeyexpr,
+        Number.isFinite(size) && size > 0 ? size : undefined,
+        decoder
+      );
       const next = mergeHistory(historyRef.current, [nextKeyexpr]);
       updateHistory(next);
       onLog({ level: 'info', source: 'subscribe', message: `Subscribed to ${nextKeyexpr}.` });
@@ -252,11 +281,53 @@ const SubscribePanel = ({
           disabled={!connected || busy}
         />
       </label>
+      <label className="field">
+        <span>Decoder</span>
+        <div className="segmented">
+          <button
+            className={`segmented_button ${decoderMode === 'raw' ? 'segmented_button--active' : ''}`}
+            type="button"
+            onClick={() => setDecoderMode('raw')}
+          >
+            Raw
+          </button>
+          <button
+            className={`segmented_button ${decoderMode === 'protobuf' ? 'segmented_button--active' : ''}`}
+            type="button"
+            onClick={() => setDecoderMode('protobuf')}
+            disabled={protoTypes.length === 0}
+          >
+            Protobuf
+          </button>
+        </div>
+        {protoTypes.length === 0 ? (
+          <span className="helper">Add a .proto schema to enable decoding.</span>
+        ) : null}
+      </label>
+      {decoderMode === 'protobuf' ? (
+        <label className="field">
+          <span>Protobuf type</span>
+          <select value={protoTypeId} onChange={(event) => setProtoTypeId(event.target.value)}>
+            <option value="">Select a message type</option>
+            {protoTypes.map((type) => (
+              <option key={type.id} value={type.id}>
+                {type.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       <div className="panel_actions">
         <button
           className="button"
           onClick={handleSubscribe}
-          disabled={!connected || busy || !trimmedKeyexpr || Boolean(validationError)}
+          disabled={
+            !connected ||
+            busy ||
+            !trimmedKeyexpr ||
+            Boolean(validationError) ||
+            (decoderMode === 'protobuf' && !protoTypeId)
+          }
         >
           <span className="button_icon" aria-hidden="true">
             <IconPlus />
@@ -277,7 +348,15 @@ const SubscribePanel = ({
             >
               <div className="list_meta">
                 <div className="list_title">{sub.keyexpr}</div>
-                <div className="list_subtitle">Buffer {sub.bufferSize}</div>
+                <div className="list_subtitle">
+                  Buffer {sub.bufferSize}{' '}
+                  <span className="list_divider">•</span>{' '}
+                  <span className="list_decoder">
+                    {decoderById[sub.id]?.kind === 'protobuf'
+                      ? `Protobuf: ${protoTypeLabels[decoderById[sub.id]?.typeId ?? ''] ?? 'Unknown'}`
+                      : 'Raw'}
+                  </span>
+                </div>
               </div>
               <div className="list_actions">
                 <button

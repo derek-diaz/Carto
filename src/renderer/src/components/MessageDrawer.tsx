@@ -5,24 +5,32 @@ import { IconClose } from './Icons';
 
 type MessageDrawerProps = {
   message: CartoMessage | null;
+  protoResult?: {
+    data?: unknown;
+    error?: string;
+    label?: string;
+    schemaName?: string;
+  } | null;
   onClose: () => void;
 };
 
-type TabId = 'json' | 'text' | 'base64';
+type TabId = 'json' | 'text' | 'base64' | 'protobuf';
 
-const MessageDrawer = ({ message, onClose }: MessageDrawerProps) => {
+const MessageDrawer = ({ message, protoResult, onClose }: MessageDrawerProps) => {
   const [tab, setTab] = useState<TabId>('json');
 
   useEffect(() => {
     if (!message) return;
-    if (message.json) {
+    if (protoResult?.data) {
+      setTab('protobuf');
+    } else if (message.json) {
       setTab('json');
     } else if (message.text) {
       setTab('text');
     } else {
       setTab('base64');
     }
-  }, [message]);
+  }, [message, protoResult?.data]);
 
   if (!message) return null;
 
@@ -43,6 +51,15 @@ const MessageDrawer = ({ message, onClose }: MessageDrawerProps) => {
       </div>
 
       <div className="drawer_tabs">
+        {protoResult ? (
+          <button
+            className={`tab ${tab === 'protobuf' ? 'tab--active' : ''}`}
+            disabled={!protoResult.data && !protoResult.error}
+            onClick={() => setTab('protobuf')}
+          >
+            Protobuf
+          </button>
+        ) : null}
         <button
           className={`tab ${tab === 'json' ? 'tab--active' : ''}`}
           disabled={!message.json}
@@ -66,6 +83,15 @@ const MessageDrawer = ({ message, onClose }: MessageDrawerProps) => {
       </div>
 
       <div className="drawer_body">
+        {tab === 'protobuf' && protoResult ? (
+          protoResult.data ? (
+            <pre>{JSON.stringify(protoResult.data, null, 2)}</pre>
+          ) : (
+            <div className="notice notice--error">
+              {protoResult.error ?? 'Unable to decode protobuf payload.'}
+            </div>
+          )
+        ) : null}
         {tab === 'json' ? <pre>{JSON.stringify(message.json, null, 2)}</pre> : null}
         {tab === 'text' ? <pre>{message.text}</pre> : null}
         {tab === 'base64' ? <pre>{message.base64 ?? ''}</pre> : null}
