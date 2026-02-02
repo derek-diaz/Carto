@@ -6,6 +6,7 @@ import { AutoSizer } from 'react-virtualized-auto-sizer';
 import type { CartoMessage } from '@shared/types';
 import { formatBytes, formatTime } from '../utils/format';
 import { IconClose, IconFollow, IconHash, IconHighlighter, IconLatest, IconSearch } from './Icons';
+import type { DecoderConfig } from '../utils/proto';
 
 const ROW_HEIGHT = 56;
 
@@ -13,6 +14,13 @@ export type StreamViewProps = {
   title: string;
   messages: CartoMessage[];
   onSelectMessage: (msg: CartoMessage) => void;
+  decoder?: DecoderConfig;
+  decodeProtobuf?: (decoder: DecoderConfig | undefined, base64: string | undefined) => {
+    data?: unknown;
+    error?: string;
+    label?: string;
+    schemaName?: string;
+  } | null;
 };
 
 type RowData = {
@@ -21,9 +29,16 @@ type RowData = {
   keyFilter: string;
   contentFilter: string;
   highlightMatches: boolean;
+  decoder?: DecoderConfig;
+  decodeProtobuf?: (decoder: DecoderConfig | undefined, base64: string | undefined) => {
+    data?: unknown;
+    error?: string;
+    label?: string;
+    schemaName?: string;
+  } | null;
 };
 
-const StreamView = ({ title, messages, onSelectMessage }: StreamViewProps) => {
+const StreamView = ({ title, messages, onSelectMessage, decoder, decodeProtobuf }: StreamViewProps) => {
   const listRef = useRef<ListImperativeAPI | null>(null);
   const [followLatest, setFollowLatest] = useState(true);
   const [keyFilter, setKeyFilter] = useState('');
@@ -41,14 +56,14 @@ const StreamView = ({ title, messages, onSelectMessage }: StreamViewProps) => {
         return false;
       }
       if (normalizedContentFilter) {
-        const payload = getSearchablePayload(msg);
+        const payload = getSearchablePayload(msg, decoder, decodeProtobuf);
         if (!payload.toLowerCase().includes(normalizedContentFilter)) {
           return false;
         }
       }
       return true;
     });
-  }, [filtersActive, messages, normalizedContentFilter, normalizedKeyFilter]);
+  }, [decodeProtobuf, decoder, filtersActive, messages, normalizedContentFilter, normalizedKeyFilter]);
 
   useEffect(() => {
     if (!followLatest || filteredMessages.length === 0) return;
@@ -209,7 +224,9 @@ const StreamView = ({ title, messages, onSelectMessage }: StreamViewProps) => {
                       onSelect: onSelectMessage,
                       keyFilter: normalizedKeyFilter,
                       contentFilter: normalizedContentFilter,
-                      highlightMatches
+                      highlightMatches,
+                      decoder,
+                      decodeProtobuf
                     } satisfies RowData
                   }
                   onScroll={handleScroll}
@@ -232,11 +249,13 @@ const Row = ({
   onSelect,
   keyFilter,
   contentFilter,
-  highlightMatches
+  highlightMatches,
+  decoder,
+  decodeProtobuf
 }: RowComponentProps<RowData>) => {
   const rowAria = ariaAttributes;
   const msg = messages[index];
-  const preview = buildPreview(msg);
+  const preview = buildPreview(msg, decoder, decodeProtobuf);
   const keyNode = highlightText(msg.key, keyFilter, highlightMatches);
   const payloadNode = highlightText(preview, contentFilter, highlightMatches);
   return (
@@ -257,7 +276,31 @@ const Row = ({
   );
 };
 
-const buildPreview = (msg: CartoMessage): string => {
+const buildPreview = (
+  msg: CartoMessage,
+  decoder?: DecoderConfig,
+  decodeProtobuf?: (decoder: DecoderConfig | undefined, base64: string | undefined) => {
+    data?: unknown;
+    error?: string;
+    label?: string;
+    schemaName?: string;
+  } | null
+): string => {
+  if (decoder?.kind === 'protobuf' && decodeProtobuf && msg.base64) {
+    const result = decodeProtobuf(decoder, msg.base64);
+    if (result?.data !== undefined) {
+      try {
+        const json = JSON.stringify(result.data);
+        return json.length > 140 ? `${json.slice(0, 140)}...` : json;
+      } catch {
+        return '[protobuf]';
+      }
+    }
+    if (result?.error) {
+      const detail = result.error.length > 120 ? `${result.error.slice(0, 120)}...` : result.error;
+      return `Protobuf error: ${detail}`;
+    }
+  }
   if (msg.encoding === 'json') {
     try {
       const json = JSON.stringify(msg.json);
@@ -273,7 +316,26 @@ const buildPreview = (msg: CartoMessage): string => {
   return msg.base64 ? `base64:${msg.base64.slice(0, 40)}...` : '[binary]';
 };
 
-const getSearchablePayload = (msg: CartoMessage): string => {
+const getSearchablePayload = (
+  msg: CartoMessage,
+  decoder?: DecoderConfig,
+  decodeProtobuf?: (decoder: DecoderConfig | undefined, base64: string | undefined) => {
+    data?: unknown;
+    error?: string;
+    label?: string;
+    schemaName?: string;
+  } | null
+): string => {
+  if (decoder?.kind === 'protobuf' && decodeProtobuf && msg.base64) {
+    const result = decodeProtobuf(decoder, msg.base64);
+    if (result?.data !== undefined) {
+      try {
+        return JSON.stringify(result.data);
+      } catch {
+        return '';
+      }
+    }
+  }
   if (msg.encoding === 'json') {
     try {
       return JSON.stringify(msg.json ?? {});
@@ -315,5 +377,3 @@ const highlightText = (text: string, query: string, enabled: boolean) => {
 };
 
 export default StreamView;
-
-

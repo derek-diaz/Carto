@@ -1,20 +1,35 @@
 import logoUrl from '@shared/logo.png';
-import { IconConnection, IconLogs, IconMonitor, IconMoon, IconPublish, IconSun } from './Icons';
+import {
+  IconConnection,
+  IconLogs,
+  IconMonitor,
+  IconMoon,
+  IconPublish,
+  IconSettings,
+  IconSun
+} from './Icons';
 
 type AppRailProps = {
   theme: 'light' | 'dark';
-  view: 'monitor' | 'publish' | 'connection' | 'logs';
+  view: 'monitor' | 'publish' | 'connection' | 'logs' | 'settings';
   connected: boolean;
-  onSetView: (view: 'monitor' | 'publish' | 'connection' | 'logs') => void;
+  onSetView: (view: 'monitor' | 'publish' | 'connection' | 'logs' | 'settings') => void;
   onToggleTheme: () => void;
+  onShowAbout: () => void;
 };
 
-const AppRail = ({ theme, view, connected, onSetView, onToggleTheme }: AppRailProps) => (
+const AppRail = ({ theme, view, connected, onSetView, onToggleTheme, onShowAbout }: AppRailProps) => (
   <aside className="app_rail">
-    <div className="rail_brand">
+    <button
+      className="rail_brand rail_brand--button"
+      type="button"
+      onClick={onShowAbout}
+      title="About Carto"
+      aria-label="About Carto"
+    >
       <img className="rail_logo" src={logoUrl} alt="Carto logo" />
       <span className="rail_name">Carto</span>
-    </div>
+    </button>
     <div className="rail_group">
       <button
         className={`rail_button ${view === 'monitor' ? 'rail_button--active' : ''}`}
@@ -53,6 +68,15 @@ const AppRail = ({ theme, view, connected, onSetView, onToggleTheme }: AppRailPr
         <span className="rail_icon" aria-hidden="true">
           <IconLogs aria-hidden="true" />
         </span>{' '}<span className="rail_label">Logs</span>
+      </button>
+      <button
+        className={`rail_button ${view === 'settings' ? 'rail_button--active' : ''}`}
+        onClick={() => onSetView('settings')}
+        title="Settings (Ctrl/Cmd+5)"
+      >
+        <span className="rail_icon" aria-hidden="true">
+          <IconSettings aria-hidden="true" />
+        </span>{' '}<span className="rail_label">Settings</span>
       </button>
     </div>
     <div className="rail_footer">

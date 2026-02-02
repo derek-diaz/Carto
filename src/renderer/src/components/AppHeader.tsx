@@ -28,7 +28,7 @@ type AppHeaderProps = {
   copied: boolean;
   lastEndpoint: string;
   onCopyEndpoint: () => Promise<void>;
-  view: 'monitor' | 'publish' | 'connection' | 'logs';
+  view: 'monitor' | 'publish' | 'connection' | 'logs' | 'settings';
   selectedSub?: Subscription;
   onTogglePause: () => Promise<void>;
   onClearBuffer: () => Promise<void>;
@@ -228,5 +228,4 @@ const AppHeader = ({
 };
 
 export default AppHeader;
-
 

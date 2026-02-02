@@ -60,9 +60,12 @@ export const useCarto = () => {
     if (!carto) return;
     return carto.onMessage(({ subscriptionId, msg }) => {
       setMessagesBySub((prev) => {
+        const subscription = subsRef.current.find((sub) => sub.id === subscriptionId);
+        if (!subscription) {
+          return prev;
+        }
         const current = prev[subscriptionId] ?? [];
-        const bufferSize =
-          subsRef.current.find((sub) => sub.id === subscriptionId)?.bufferSize ?? DEFAULT_BUFFER;
+        const bufferSize = subscription.bufferSize ?? DEFAULT_BUFFER;
         const next = [...current, msg];
         const pruned = next.length > bufferSize ? next.slice(next.length - bufferSize) : next;
         return { ...prev, [subscriptionId]: pruned };

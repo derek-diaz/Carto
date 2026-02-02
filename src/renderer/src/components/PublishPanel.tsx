@@ -2,12 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PublishEncoding } from '@shared/types';
 import type { LogInput, ToastInput } from '../utils/notifications';
 import type { ProtoTypeOption } from '../utils/proto';
-import { IconChevronDown, IconPublish } from './Icons';
+import { IconChevronDown, IconClose, IconPublish } from './Icons';
 
 export const DEFAULT_PUBLISH_KEYEXPR = 'demo/publish';
 export const DEFAULT_PUBLISH_JSON = '{\n  "message": "hello from Carto"\n}';
 const KEYEXPR_HISTORY_KEY = 'carto.keyexpr.publish.history';
+const KEYEXPR_HISTORY_DETAILS_KEY = 'carto.keyexpr.publish.details';
 const MAX_KEYEXPR_HISTORY = 8;
+const HISTORY_EVENT = 'carto.history.updated';
 
 export type PublishDraft = {
   keyexpr: string;
@@ -67,12 +69,72 @@ const PublishPanel = ({
   const comboRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const historyRef = useRef<string[]>([]);
+  const detailsRef = useRef<Record<string, PublishDraft>>({});
+  const suppressHistoryOpenRef = useRef(false);
 
-  const updateHistory = useCallback((entries: string[]) => {
+  const applyHistory = useCallback((entries: string[]) => {
     historyRef.current = entries;
     setKeyexprHistory(entries);
-    persistHistory(entries);
   }, []);
+
+  const notifyHistoryUpdated = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent(HISTORY_EVENT, { detail: { type: 'publish' } }));
+  }, []);
+
+  const commitHistory = useCallback(
+    (entries: string[]) => {
+      applyHistory(entries);
+      persistHistory(entries);
+      notifyHistoryUpdated();
+    },
+    [applyHistory, notifyHistoryUpdated]
+  );
+
+  const loadDetails = useCallback(() => {
+    if (typeof globalThis === 'undefined' || !('localStorage' in globalThis)) return {};
+    const stored = globalThis.localStorage.getItem(KEYEXPR_HISTORY_DETAILS_KEY);
+    if (!stored) return {};
+    try {
+      const parsed = JSON.parse(stored);
+      if (!parsed || typeof parsed !== 'object') return {};
+      const next: Record<string, PublishDraft> = {};
+      Object.entries(parsed as Record<string, unknown>).forEach(([key, value]) => {
+        if (!value || typeof value !== 'object') return;
+        const entry = value as PublishDraft;
+        if (typeof entry.encoding !== 'string' || typeof entry.payload !== 'string') return;
+        next[key] = {
+          keyexpr: key,
+          encoding: entry.encoding,
+          payload: entry.payload,
+          protoTypeId: entry.protoTypeId
+        };
+      });
+      return next;
+    } catch {
+      return {};
+    }
+  }, []);
+
+  const persistDetails = useCallback((next: Record<string, PublishDraft>) => {
+    if ('localStorage' in globalThis) {
+      globalThis.localStorage.setItem(KEYEXPR_HISTORY_DETAILS_KEY, JSON.stringify(next));
+    }
+  }, []);
+
+  const handleRemoveHistory = useCallback(
+    (entry: string) => {
+      const next = historyRef.current.filter((item) => item !== entry);
+      commitHistory(next);
+      const details = { ...detailsRef.current };
+      if (details[entry]) {
+        delete details[entry];
+        detailsRef.current = details;
+        persistDetails(details);
+      }
+    },
+    [commitHistory, persistDetails]
+  );
 
   useEffect(() => {
     if (typeof globalThis === 'undefined' || !('localStorage' in globalThis)) return;
@@ -82,12 +144,31 @@ const PublishPanel = ({
       const parsed = JSON.parse(stored);
       if (Array.isArray(parsed)) {
         const entries = parsed.filter((entry) => typeof entry === 'string');
-        updateHistory(entries);
+        applyHistory(entries);
       }
     } catch {
       // ignore history parse errors
     }
-  }, [updateHistory]);
+  }, [applyHistory]);
+
+  useEffect(() => {
+    detailsRef.current = loadDetails();
+  }, [loadDetails]);
+
+  useEffect(() => {
+    const keyexpr = draft.keyexpr.trim();
+    if (!keyexpr) return;
+    if (!historyRef.current.includes(keyexpr)) return;
+    const details = { ...detailsRef.current };
+    details[keyexpr] = {
+      keyexpr,
+      encoding: draft.encoding,
+      payload: draft.payload,
+      protoTypeId: draft.protoTypeId
+    };
+    detailsRef.current = details;
+    persistDetails(details);
+  }, [draft.encoding, draft.keyexpr, draft.payload, draft.protoTypeId, persistDetails]);
 
   useEffect(() => {
     if (!showHistory) return;
@@ -99,6 +180,31 @@ const PublishPanel = ({
     document.addEventListener('mousedown', handlePointerDown);
     return () => document.removeEventListener('mousedown', handlePointerDown);
   }, [showHistory]);
+
+  useEffect(() => {
+    const handleHistoryUpdate = (event: Event) => {
+      const detail = (event as CustomEvent<{ type?: string }>).detail;
+      if (detail?.type && detail.type !== 'publish') return;
+      if (typeof globalThis === 'undefined' || !('localStorage' in globalThis)) return;
+      const stored = globalThis.localStorage.getItem(KEYEXPR_HISTORY_KEY);
+      if (!stored) {
+        applyHistory([]);
+        return;
+      }
+      try {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          const entries = parsed.filter((entry) => typeof entry === 'string');
+          applyHistory(entries);
+        }
+      } catch {
+        // ignore history parse errors
+      }
+      detailsRef.current = loadDetails();
+    };
+    window.addEventListener(HISTORY_EVENT, handleHistoryUpdate as EventListener);
+    return () => window.removeEventListener(HISTORY_EVENT, handleHistoryUpdate as EventListener);
+  }, [applyHistory, loadDetails]);
 
   const handlePublish = async () => {
     if (!connected) return;
@@ -112,7 +218,16 @@ const PublishPanel = ({
       await onPublish(nextKeyexpr, draft.payload, draft.encoding, draft.protoTypeId);
       if (nextKeyexpr) {
         const next = mergeHistory(historyRef.current, [nextKeyexpr]);
-        updateHistory(next);
+        commitHistory(next);
+        const details = { ...detailsRef.current };
+        details[nextKeyexpr] = {
+          keyexpr: nextKeyexpr,
+          encoding: draft.encoding,
+          payload: draft.payload,
+          protoTypeId: draft.protoTypeId
+        };
+        detailsRef.current = details;
+        persistDetails(details);
       }
       onToast({ type: 'ok', message: 'Sent', detail: nextKeyexpr });
       onLog({ level: 'info', source: 'publish', message: `Published to ${nextKeyexpr}.` });
@@ -124,6 +239,41 @@ const PublishPanel = ({
       setBusy(false);
     }
   };
+
+  const applyHistorySelection = useCallback(
+    (entry: string) => {
+      const stored = detailsRef.current[entry];
+      if (!stored) {
+        onDraftChange({ ...draft, keyexpr: entry });
+        return;
+      }
+
+      const next: PublishDraft = {
+        keyexpr: entry,
+        encoding: stored.encoding,
+        payload: stored.payload,
+        protoTypeId: stored.protoTypeId
+      };
+
+      if (stored.encoding === 'protobuf') {
+        const hasType = stored.protoTypeId
+          ? protoTypes.some((type) => type.id === stored.protoTypeId)
+          : false;
+        if (!hasType) {
+          const fallback = protoTypes[0]?.id;
+          if (fallback) {
+            next.protoTypeId = fallback;
+          } else {
+            next.encoding = 'json';
+            next.protoTypeId = undefined;
+          }
+        }
+      }
+
+      onDraftChange(next);
+    },
+    [draft, onDraftChange, protoTypes]
+  );
 
   const renderHelper = () => {
     if (draft.encoding === 'protobuf') {
@@ -161,6 +311,10 @@ const PublishPanel = ({
             value={draft.keyexpr}
             onChange={(event) => onDraftChange({ ...draft, keyexpr: event.target.value })}
             onFocus={() => {
+              if (suppressHistoryOpenRef.current) {
+                suppressHistoryOpenRef.current = false;
+                return;
+              }
               if (keyexprHistory.length > 0) setShowHistory(true);
             }}
             placeholder="demo/publish"
@@ -183,19 +337,32 @@ const PublishPanel = ({
                 <div className="combo_empty">No saved keyexprs yet.</div>
               ) : (
                 keyexprHistory.map((entry) => (
-                  <button
-                    key={entry}
-                    className="combo_option"
-                    type="button"
-                    role="option"
-                    onClick={() => {
-                      onDraftChange({ ...draft, keyexpr: entry });
-                      setShowHistory(false);
-                      inputRef.current?.focus();
-                    }}
-                  >
-                    {entry}
-                  </button>
+                  <div key={entry} className="combo_option">
+                    <button
+                      className="combo_option_button"
+                      type="button"
+                      role="option"
+                      onClick={() => {
+                        applyHistorySelection(entry);
+                        setShowHistory(false);
+                        suppressHistoryOpenRef.current = true;
+                        inputRef.current?.focus();
+                      }}
+                    >
+                      {entry}
+                    </button>
+                    <button
+                      className="icon-button icon-button--compact icon-button--ghost combo_option_remove"
+                      type="button"
+                      title={`Remove ${entry}`}
+                      aria-label={`Remove ${entry} from history`}
+                      onClick={() => handleRemoveHistory(entry)}
+                    >
+                      <span className="icon-button_icon" aria-hidden="true">
+                        <IconClose />
+                      </span>
+                    </button>
+                  </div>
                 ))
               )}
             </div>
@@ -317,4 +484,3 @@ const PublishPanel = ({
 };
 
 export default PublishPanel;
-

@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CartoMessage, ConnectionStatus } from '@shared/types';
 import AppHeader from './components/AppHeader';
 import AppRail from './components/AppRail';
+import AboutDialog from './components/AboutDialog';
 import ConnectionView from './components/ConnectionView';
 import LogsView from './components/LogsView';
 import MonitorView from './components/MonitorView';
 import MessageDrawer from './components/MessageDrawer';
 import PublishView from './components/PublishView';
+import SettingsView from './components/SettingsView';
 import ToastStack from './components/ToastStack';
 import {
   DEFAULT_PUBLISH_JSON,
@@ -25,12 +27,31 @@ import {
   type ProtoTypeOption
 } from './utils/proto';
 import { base64ToBytes, bytesToBase64 } from './utils/base64';
+import pkg from '../../../package.json';
 
 const MAX_LOGS = 200;
 const MAX_TOASTS = 4;
 const DEFAULT_TOAST_MS = 3500;
 const ERROR_TOAST_MS = 6000;
 const PROTO_STORAGE_KEY = 'carto.proto.schemas';
+const RING_BUFFER_STORAGE_KEY = 'carto.ringBuffer.size';
+const SUBSCRIBE_HISTORY_KEY = 'carto.keyexpr.history';
+const PUBLISH_HISTORY_KEY = 'carto.keyexpr.publish.history';
+const PUBLISH_DETAILS_KEY = 'carto.keyexpr.publish.details';
+const PROFILE_STORAGE_KEY = 'carto.connectionProfiles';
+const HISTORY_EVENT = 'carto.history.updated';
+const SETTINGS_EVENT = 'carto.settings.imported';
+const DEFAULT_RING_BUFFER = 200;
+const MIN_RING_BUFFER = 10;
+const MAX_RING_BUFFER = 5000;
+
+const appInfo = pkg as {
+  name?: string;
+  version?: string;
+  description?: string;
+  author?: string;
+  build?: { productName?: string };
+};
 
 const createId = () => {
   const cryptoObj = globalThis.crypto as { randomUUID?: () => string } | undefined;
@@ -44,12 +65,41 @@ type StoredProtoSchema = {
   source: string;
 };
 
+type SettingsExport = {
+  version: number;
+  exportedAt: string;
+  app?: {
+    name?: string;
+    version?: string;
+  };
+  data: {
+    theme?: 'light' | 'dark';
+    ringBufferSize?: number;
+    protoSchemas?: StoredProtoSchema[];
+    histories?: {
+      subscribe?: string[];
+      publish?: string[];
+      publishDetails?: Record<string, PublishDraft>;
+    };
+    connectionProfiles?: unknown;
+  };
+};
+
 const App = () => {
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     if (typeof globalThis === 'undefined' || !('localStorage' in globalThis)) return 'light';
     const stored = globalThis.localStorage.getItem('carto.theme');
     if (stored === 'light' || stored === 'dark') return stored;
     return globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
+  const [ringBufferSize, setRingBufferSize] = useState(() => {
+    if (typeof globalThis === 'undefined' || !('localStorage' in globalThis)) {
+      return DEFAULT_RING_BUFFER;
+    }
+    const stored = globalThis.localStorage.getItem(RING_BUFFER_STORAGE_KEY);
+    const parsed = stored ? Number(stored) : NaN;
+    if (!Number.isFinite(parsed)) return DEFAULT_RING_BUFFER;
+    return Math.min(MAX_RING_BUFFER, Math.max(MIN_RING_BUFFER, Math.round(parsed)));
   });
   const {
     status,
@@ -96,6 +146,7 @@ const App = () => {
     message: string;
   } | null>(null);
   const [showSubscribe, setShowSubscribe] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
 
   const dismissToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
@@ -312,8 +363,8 @@ const App = () => {
     [decodeProtobuf, selectedDecoder, selectedMessage?.base64]
   );
   const streamTitle = selectedSub ? `Stream - ${selectedSub.keyexpr}` : 'Stream';
-  const activeKeys = selectedSubId ? selectedRecentKeys : recentKeys;
-  const [view, setView] = useState<'monitor' | 'publish' | 'connection' | 'logs'>(
+  const activeKeys = recentKeys;
+  const [view, setView] = useState<'monitor' | 'publish' | 'connection' | 'logs' | 'settings'>(
     status.connected ? 'monitor' : 'connection'
   );
   const [monitorTab, setMonitorTab] = useState<'stream' | 'keys'>('stream');
@@ -321,7 +372,12 @@ const App = () => {
   useEffect(() => {
     const wasConnected = prevConnectedRef.current;
     prevConnectedRef.current = status.connected;
-    if (!status.connected && status.health?.state === 'disconnected' && view !== 'logs') {
+    if (
+      !status.connected &&
+      status.health?.state === 'disconnected' &&
+      view !== 'logs' &&
+      view !== 'settings'
+    ) {
       setView('connection');
       return;
     }
@@ -343,6 +399,300 @@ const App = () => {
       globalThis.localStorage.setItem('carto.theme', theme);
     }
   }, [theme]);
+
+  useEffect(() => {
+    if (!('localStorage' in globalThis)) return;
+    globalThis.localStorage.setItem(RING_BUFFER_STORAGE_KEY, String(ringBufferSize));
+  }, [ringBufferSize]);
+
+  const readStringArray = useCallback((raw: string | null): string[] => {
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((entry) => typeof entry === 'string');
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const mergeStringArrays = useCallback((primary: string[], secondary: string[]) => {
+    const combined = [...primary, ...secondary];
+    const seen = new Set<string>();
+    const next: string[] = [];
+    combined.forEach((entry) => {
+      if (!seen.has(entry)) {
+        seen.add(entry);
+        next.push(entry);
+      }
+    });
+    return next;
+  }, []);
+
+  const exportSettings = useCallback((): SettingsExport => {
+    const subscribeHistory = readStringArray(
+      'localStorage' in globalThis ? globalThis.localStorage.getItem(SUBSCRIBE_HISTORY_KEY) : null
+    );
+    const publishHistory = readStringArray(
+      'localStorage' in globalThis ? globalThis.localStorage.getItem(PUBLISH_HISTORY_KEY) : null
+    );
+    const publishDetails = (() => {
+      if (!('localStorage' in globalThis)) return {};
+      const stored = globalThis.localStorage.getItem(PUBLISH_DETAILS_KEY);
+      if (!stored) return {};
+      try {
+        const parsed = JSON.parse(stored);
+        if (!parsed || typeof parsed !== 'object') return {};
+        const next: Record<string, PublishDraft> = {};
+        Object.entries(parsed as Record<string, unknown>).forEach(([key, value]) => {
+          if (!value || typeof value !== 'object') return;
+          const entry = value as PublishDraft;
+          if (typeof entry.encoding !== 'string' || typeof entry.payload !== 'string') return;
+          next[key] = {
+            keyexpr: key,
+            encoding: entry.encoding,
+            payload: entry.payload,
+            protoTypeId: entry.protoTypeId
+          };
+        });
+        return next;
+      } catch {
+        return {};
+      }
+    })();
+
+    const connectionProfiles = (() => {
+      if (!('localStorage' in globalThis)) return [];
+      const stored = globalThis.localStorage.getItem(PROFILE_STORAGE_KEY);
+      if (!stored) return [];
+      try {
+        const parsed = JSON.parse(stored);
+        return parsed;
+      } catch {
+        return [];
+      }
+    })();
+
+    return {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      app: {
+        name: appInfo.build?.productName ?? appInfo.name,
+        version: appInfo.version
+      },
+      data: {
+        theme,
+        ringBufferSize,
+        protoSchemas: protoSchemas.map((schema) => ({
+          id: schema.id,
+          name: schema.name,
+          source: schema.source
+        })),
+        histories: {
+          subscribe: subscribeHistory,
+          publish: publishHistory,
+          publishDetails
+        },
+        connectionProfiles
+      }
+    };
+  }, [protoSchemas, readStringArray, ringBufferSize, theme]);
+
+  const importSettings = useCallback(
+    (
+      payload: unknown,
+      options?: { mode?: 'merge' | 'replace' }
+    ): { ok: boolean; error?: string; warnings?: string[] } => {
+      const mode = options?.mode === 'merge' ? 'merge' : 'replace';
+      if (!payload || typeof payload !== 'object') {
+        return { ok: false, error: 'Invalid settings file.' };
+      }
+      const warnings: string[] = [];
+      const root = payload as { data?: unknown };
+      const data =
+        root.data && typeof root.data === 'object'
+          ? (root.data as Record<string, unknown>)
+          : (root as Record<string, unknown>);
+
+      if (typeof data.theme === 'string' && mode === 'replace') {
+        if (data.theme === 'light' || data.theme === 'dark') {
+          setTheme(data.theme);
+        } else {
+          warnings.push('Skipped unknown theme value.');
+        }
+      }
+
+      if (data.ringBufferSize !== undefined && mode === 'replace') {
+        const parsed = Number(data.ringBufferSize);
+        if (Number.isFinite(parsed)) {
+          const clamped = Math.min(MAX_RING_BUFFER, Math.max(MIN_RING_BUFFER, Math.round(parsed)));
+          setRingBufferSize(clamped);
+        } else {
+          warnings.push('Skipped invalid ring buffer size.');
+        }
+      }
+
+      if (Array.isArray(data.protoSchemas)) {
+        const nextSchemas: ProtoSchema[] = [];
+        data.protoSchemas.forEach((entry) => {
+          if (!entry || typeof entry !== 'object') return;
+          const record = entry as StoredProtoSchema;
+          if (
+            typeof record.id !== 'string' ||
+            typeof record.name !== 'string' ||
+            typeof record.source !== 'string'
+          ) {
+            return;
+          }
+          try {
+            nextSchemas.push(parseProtoSchema(record.id, record.name, record.source));
+          } catch {
+            warnings.push(`Skipped invalid protobuf schema: ${record.name}`);
+          }
+        });
+        if (mode === 'merge') {
+          const existing = protoSchemas;
+          const existingKeys = new Set(existing.map((schema) => `${schema.name}::${schema.source}`));
+          const merged = [...existing];
+          nextSchemas.forEach((schema) => {
+            const key = `${schema.name}::${schema.source}`;
+            if (!existingKeys.has(key)) {
+              existingKeys.add(key);
+              merged.push(schema);
+            }
+          });
+          setProtoSchemas(merged);
+          persistProtoSchemas(merged);
+        } else {
+          setProtoSchemas(nextSchemas);
+          persistProtoSchemas(nextSchemas);
+        }
+      }
+
+      const histories = data.histories;
+      if (histories && typeof histories === 'object') {
+        const record = histories as Record<string, unknown>;
+        if (Array.isArray(record.subscribe)) {
+          const nextEntries = record.subscribe.filter((entry) => typeof entry === 'string') as string[];
+          if ('localStorage' in globalThis) {
+            const current = mode === 'merge' ? readStringArray(globalThis.localStorage.getItem(SUBSCRIBE_HISTORY_KEY)) : [];
+            const merged = mode === 'merge' ? mergeStringArrays(nextEntries, current) : nextEntries;
+            globalThis.localStorage.setItem(SUBSCRIBE_HISTORY_KEY, JSON.stringify(merged));
+          }
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent(HISTORY_EVENT, { detail: { type: 'subscribe' } }));
+          }
+        }
+        if (Array.isArray(record.publish)) {
+          const nextEntries = record.publish.filter((entry) => typeof entry === 'string') as string[];
+          if ('localStorage' in globalThis) {
+            const current = mode === 'merge' ? readStringArray(globalThis.localStorage.getItem(PUBLISH_HISTORY_KEY)) : [];
+            const merged = mode === 'merge' ? mergeStringArrays(nextEntries, current) : nextEntries;
+            globalThis.localStorage.setItem(PUBLISH_HISTORY_KEY, JSON.stringify(merged));
+          }
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent(HISTORY_EVENT, { detail: { type: 'publish' } }));
+          }
+        }
+        if (record.publishDetails && typeof record.publishDetails === 'object') {
+          const next: Record<string, PublishDraft> = {};
+          Object.entries(record.publishDetails as Record<string, unknown>).forEach(([key, value]) => {
+            if (!value || typeof value !== 'object') return;
+            const entry = value as PublishDraft;
+            if (typeof entry.encoding !== 'string' || typeof entry.payload !== 'string') return;
+            next[key] = {
+              keyexpr: key,
+              encoding: entry.encoding,
+              payload: entry.payload,
+              protoTypeId: entry.protoTypeId
+            };
+          });
+          if ('localStorage' in globalThis) {
+            if (mode === 'merge') {
+              const currentRaw = globalThis.localStorage.getItem(PUBLISH_DETAILS_KEY);
+              let current: Record<string, PublishDraft> = {};
+              if (currentRaw) {
+                try {
+                  const parsed = JSON.parse(currentRaw);
+                  if (parsed && typeof parsed === 'object') {
+                    current = parsed as Record<string, PublishDraft>;
+                  }
+                } catch {
+                  current = {};
+                }
+              }
+              const merged = { ...next, ...current };
+              globalThis.localStorage.setItem(PUBLISH_DETAILS_KEY, JSON.stringify(merged));
+            } else {
+              globalThis.localStorage.setItem(PUBLISH_DETAILS_KEY, JSON.stringify(next));
+            }
+          }
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent(HISTORY_EVENT, { detail: { type: 'publish' } }));
+          }
+        }
+      }
+
+      if (Array.isArray(data.connectionProfiles)) {
+        if ('localStorage' in globalThis) {
+          if (mode === 'merge') {
+            const currentRaw = globalThis.localStorage.getItem(PROFILE_STORAGE_KEY);
+            let current: { id?: string }[] = [];
+            if (currentRaw) {
+              try {
+                const parsed = JSON.parse(currentRaw);
+                if (Array.isArray(parsed)) {
+                  current = parsed as { id?: string }[];
+                }
+              } catch {
+                current = [];
+              }
+            }
+            const byId = new Map<string, unknown>();
+            current.forEach((entry) => {
+              if (entry && typeof entry === 'object' && typeof entry.id === 'string') {
+                byId.set(entry.id, entry);
+              }
+            });
+            (data.connectionProfiles as unknown[]).forEach((entry) => {
+              if (entry && typeof entry === 'object' && typeof (entry as { id?: string }).id === 'string') {
+                const id = (entry as { id: string }).id;
+                if (!byId.has(id)) {
+                  byId.set(id, entry);
+                }
+              }
+            });
+            globalThis.localStorage.setItem(
+              PROFILE_STORAGE_KEY,
+              JSON.stringify([...byId.values()])
+            );
+          } else {
+            globalThis.localStorage.setItem(
+              PROFILE_STORAGE_KEY,
+              JSON.stringify(data.connectionProfiles)
+            );
+          }
+        }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent(SETTINGS_EVENT, { detail: { type: 'connectionProfiles' } })
+          );
+        }
+      }
+
+      return { ok: true, warnings: warnings.length > 0 ? warnings : undefined };
+    },
+    [
+      mergeStringArrays,
+      parseProtoSchema,
+      persistProtoSchemas,
+      protoSchemas,
+      readStringArray,
+      setProtoSchemas,
+      setRingBufferSize,
+      setTheme
+    ]
+  );
 
   useEffect(() => {
     if (!copied) return;
@@ -378,6 +728,8 @@ const App = () => {
         return 'Publish';
       case 'logs':
         return 'Logs';
+      case 'settings':
+        return 'Settings';
       default:
         return 'Connection';
     }
@@ -400,6 +752,9 @@ const App = () => {
     }
     if (view === 'logs') {
       return 'Connection events and errors.';
+    }
+    if (view === 'settings') {
+      return 'Defaults for new subscriptions.';
     }
     return status.connected ? 'Connected to the router.' : 'Configure and connect to a router.';
   }, [publishSupport, selectedSub, status.connected, view]);
@@ -461,7 +816,8 @@ const App = () => {
 
   const handleSubscribe = useCallback(
     async (keyexpr: string, bufferSize?: number, decoder?: DecoderConfig) => {
-      const subscriptionId = await subscribe(keyexpr, bufferSize);
+      const resolvedBufferSize = bufferSize ?? ringBufferSize;
+      const subscriptionId = await subscribe(keyexpr, resolvedBufferSize);
       setSubscriptionDecoders((prev) => ({
         ...prev,
         [subscriptionId]: decoder ?? { kind: 'raw' }
@@ -469,7 +825,7 @@ const App = () => {
       setShowSubscribe(false);
       return subscriptionId;
     },
-    [subscribe]
+    [ringBufferSize, subscribe]
   );
 
   const handleUnsubscribe = useCallback(
@@ -576,6 +932,11 @@ const App = () => {
         setView('logs');
         return;
       }
+      if (event.code === 'Digit5') {
+        event.preventDefault();
+        setView('settings');
+        return;
+      }
 
       const key = event.key.toLowerCase();
       if (event.shiftKey && key === 'l') {
@@ -628,6 +989,7 @@ const App = () => {
           connected={status.connected}
           onSetView={setView}
           onToggleTheme={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
+          onShowAbout={() => setShowAbout(true)}
         />
 
         <div className="app_shell">
@@ -682,6 +1044,8 @@ const App = () => {
                 onToast={addToast}
                 protoTypes={protoTypeOptions}
                 decoderById={subscriptionDecoders}
+                selectedDecoder={selectedDecoder}
+                decodeProtobuf={decodeProtobuf}
                 protoTypeLabels={protoTypeLabels}
               />
             ) : null}
@@ -711,9 +1075,22 @@ const App = () => {
                 onDisconnect={handleDisconnect}
                 onLog={addLog}
                 onToast={addToast}
+              />
+            ) : null}
+
+            {view === 'settings' ? (
+              <SettingsView
+                ringBufferSize={ringBufferSize}
+                minRingBuffer={MIN_RING_BUFFER}
+                maxRingBuffer={MAX_RING_BUFFER}
+                onRingBufferChange={setRingBufferSize}
                 schemas={protoSchemas}
                 onAddSchema={addProtoSchema}
                 onRemoveSchema={removeProtoSchema}
+                onLog={addLog}
+                onToast={addToast}
+                onExportSettings={exportSettings}
+                onImportSettings={importSettings}
               />
             ) : null}
 
@@ -726,6 +1103,14 @@ const App = () => {
         message={selectedMessage}
         protoResult={protoResult}
         onClose={() => setSelectedMessage(null)}
+      />
+      <AboutDialog
+        open={showAbout}
+        appName={appInfo.build?.productName ?? appInfo.name ?? 'Carto'}
+        version={appInfo.version ?? '0.0.0'}
+        description={appInfo.description}
+        author={appInfo.author}
+        onClose={() => setShowAbout(false)}
       />
       {toasts.length > 0 ? <ToastStack toasts={toasts} onDismiss={dismissToast} /> : null}
     </div>

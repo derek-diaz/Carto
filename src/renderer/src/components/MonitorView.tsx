@@ -30,6 +30,13 @@ type MonitorViewProps = {
   onToast: (toast: ToastInput) => void;
   protoTypes: ProtoTypeOption[];
   decoderById: Record<string, DecoderConfig | undefined>;
+  selectedDecoder?: DecoderConfig;
+  decodeProtobuf?: (decoder: DecoderConfig | undefined, base64: string | undefined) => {
+    data?: unknown;
+    error?: string;
+    label?: string;
+    schemaName?: string;
+  } | null;
   protoTypeLabels: Record<string, string>;
 };
 
@@ -56,6 +63,8 @@ const MonitorView = ({
   onToast,
   protoTypes,
   decoderById,
+  selectedDecoder,
+  decodeProtobuf,
   protoTypeLabels
 }: MonitorViewProps) => {
   if (subscriptions.length === 0) {
@@ -192,6 +201,8 @@ const MonitorView = ({
             title={streamTitle}
             messages={selectedMessages}
             onSelectMessage={onSelectMessage}
+            decoder={selectedDecoder}
+            decodeProtobuf={decodeProtobuf}
           />
         </div>
         <div
@@ -209,5 +220,4 @@ const MonitorView = ({
 };
 
 export default MonitorView;
-
 
