@@ -16,6 +16,7 @@ import { getKeyexprError } from '@shared/keyexpr';
 const DEFAULT_KEYEXPR = 'demo/**';
 const KEYEXPR_HISTORY_KEY = 'carto.keyexpr.history';
 const MAX_KEYEXPR_HISTORY = 8;
+const HISTORY_EVENT = 'carto.history.updated';
 
 type SubscribePanelProps = {
   connected: boolean;
@@ -71,7 +72,6 @@ const SubscribePanel = ({
 }: SubscribePanelProps) => {
   const [keyexpr, setKeyexpr] = useState(DEFAULT_KEYEXPR);
   const [keyexprHistory, setKeyexprHistory] = useState<string[]>([]);
-  const [bufferSize, setBufferSize] = useState('200');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -80,16 +80,38 @@ const SubscribePanel = ({
   const comboRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const historyRef = useRef<string[]>([]);
+  const suppressHistoryOpenRef = useRef(false);
 
   const trimmedKeyexpr = keyexpr.trim();
   const validationError = trimmedKeyexpr ? getKeyexprError(trimmedKeyexpr) : null;
   const displayError = validationError ?? error;
 
-  const updateHistory = useCallback((entries: string[]) => {
+  const applyHistory = useCallback((entries: string[]) => {
     historyRef.current = entries;
     setKeyexprHistory(entries);
-    persistHistory(entries);
   }, []);
+
+  const notifyHistoryUpdated = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent(HISTORY_EVENT, { detail: { type: 'subscribe' } }));
+  }, []);
+
+  const commitHistory = useCallback(
+    (entries: string[]) => {
+      applyHistory(entries);
+      persistHistory(entries);
+      notifyHistoryUpdated();
+    },
+    [applyHistory, notifyHistoryUpdated]
+  );
+
+  const handleRemoveHistory = useCallback(
+    (entry: string) => {
+      const next = historyRef.current.filter((item) => item !== entry);
+      commitHistory(next);
+    },
+    [commitHistory]
+  );
 
   useEffect(() => {
     setError(null);
@@ -103,12 +125,12 @@ const SubscribePanel = ({
       const parsed = JSON.parse(stored);
       if (Array.isArray(parsed)) {
         const entries = parsed.filter((entry) => typeof entry === 'string');
-        updateHistory(entries);
+        applyHistory(entries);
       }
     } catch {
       // ignore history parse errors
     }
-  }, [updateHistory]);
+  }, [applyHistory]);
 
   useEffect(() => {
     if (subscriptions.length === 0) return;
@@ -120,9 +142,9 @@ const SubscribePanel = ({
     const isSame =
       next.length === current.length && next.every((entry, index) => entry === current[index]);
     if (!isSame) {
-      updateHistory(next);
+      commitHistory(next);
     }
-  }, [subscriptions, updateHistory]);
+  }, [commitHistory, subscriptions]);
 
   useEffect(() => {
     if (!showHistory) return;
@@ -136,11 +158,47 @@ const SubscribePanel = ({
   }, [showHistory]);
 
   useEffect(() => {
+    const handleHistoryUpdate = (event: Event) => {
+      const detail = (event as CustomEvent<{ type?: string }>).detail;
+      if (detail?.type && detail.type !== 'subscribe') return;
+      if (typeof globalThis === 'undefined' || !('localStorage' in globalThis)) return;
+      const stored = globalThis.localStorage.getItem(KEYEXPR_HISTORY_KEY);
+      if (!stored) {
+        applyHistory([]);
+        return;
+      }
+      try {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          const entries = parsed.filter((entry) => typeof entry === 'string');
+          applyHistory(entries);
+        }
+      } catch {
+        // ignore history parse errors
+      }
+    };
+    window.addEventListener(HISTORY_EVENT, handleHistoryUpdate as EventListener);
+    return () => window.removeEventListener(HISTORY_EVENT, handleHistoryUpdate as EventListener);
+  }, [applyHistory]);
+
+  useEffect(() => {
     if (decoderMode !== 'protobuf') return;
     if (!protoTypeId) return;
     if (protoTypes.some((type) => type.id === protoTypeId)) return;
     setProtoTypeId('');
   }, [decoderMode, protoTypeId, protoTypes]);
+
+  useEffect(() => {
+    if (!selectedSubId) return;
+    const decoder = decoderById[selectedSubId];
+    if (!decoder || decoder.kind === 'raw') {
+      setDecoderMode('raw');
+      setProtoTypeId('');
+      return;
+    }
+    setDecoderMode('protobuf');
+    setProtoTypeId(decoder.typeId);
+  }, [decoderById, selectedSubId]);
 
   const reportError = (source: string, message: string, detail?: string) => {
     setError(message);
@@ -177,18 +235,13 @@ const SubscribePanel = ({
     setBusy(true);
     setError(null);
     try {
-      const size = Number(bufferSize);
       const decoder: DecoderConfig | undefined =
         decoderMode === 'protobuf' && protoTypeId
           ? { kind: 'protobuf', typeId: protoTypeId }
           : { kind: 'raw' };
-      await onSubscribe(
-        nextKeyexpr,
-        Number.isFinite(size) && size > 0 ? size : undefined,
-        decoder
-      );
+      await onSubscribe(nextKeyexpr, undefined, decoder);
       const next = mergeHistory(historyRef.current, [nextKeyexpr]);
-      updateHistory(next);
+      commitHistory(next);
       onLog({ level: 'info', source: 'subscribe', message: `Subscribed to ${nextKeyexpr}.` });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -228,6 +281,10 @@ const SubscribePanel = ({
             value={keyexpr}
             onChange={(event) => setKeyexpr(event.target.value)}
             onFocus={() => {
+              if (suppressHistoryOpenRef.current) {
+                suppressHistoryOpenRef.current = false;
+                return;
+              }
               if (keyexprHistory.length > 0) setShowHistory(true);
             }}
             placeholder="demo/**"
@@ -250,19 +307,32 @@ const SubscribePanel = ({
                 <div className="combo_empty">No saved keyexprs yet.</div>
               ) : (
                 keyexprHistory.map((entry) => (
-                  <button
-                    key={entry}
-                    className="combo_option"
+                  <div key={entry} className="combo_option">
+                    <button
+                    className="combo_option_button"
                     type="button"
                     role="option"
                     onClick={() => {
                       setKeyexpr(entry);
                       setShowHistory(false);
+                      suppressHistoryOpenRef.current = true;
                       inputRef.current?.focus();
                     }}
                   >
-                    {entry}
-                  </button>
+                      {entry}
+                    </button>
+                    <button
+                      className="icon-button icon-button--compact icon-button--ghost combo_option_remove"
+                      type="button"
+                      title={`Remove ${entry}`}
+                      aria-label={`Remove ${entry} from history`}
+                      onClick={() => handleRemoveHistory(entry)}
+                    >
+                      <span className="icon-button_icon" aria-hidden="true">
+                        <IconClose />
+                      </span>
+                    </button>
+                  </div>
                 ))
               )}
             </div>
@@ -270,17 +340,6 @@ const SubscribePanel = ({
         </div>
       </label>
       <div className="helper">Pick a recent keyexpr from the dropdown or type a new one.</div>
-      <label className="field">
-        <span>Ring buffer</span>
-        <input
-          type="number"
-          min={10}
-          max={5000}
-          value={bufferSize}
-          onChange={(event) => setBufferSize(event.target.value)}
-          disabled={!connected || busy}
-        />
-      </label>
       <label className="field">
         <span>Decoder</span>
         <div className="segmented">
@@ -349,8 +408,6 @@ const SubscribePanel = ({
               <div className="list_meta">
                 <div className="list_title">{sub.keyexpr}</div>
                 <div className="list_subtitle">
-                  Buffer {sub.bufferSize}{' '}
-                  <span className="list_divider">•</span>{' '}
                   <span className="list_decoder">
                     {decoderById[sub.id]?.kind === 'protobuf'
                       ? `Protobuf: ${protoTypeLabels[decoderById[sub.id]?.typeId ?? ''] ?? 'Unknown'}`
@@ -414,4 +471,3 @@ const SubscribePanel = ({
 };
 
 export default SubscribePanel;
-

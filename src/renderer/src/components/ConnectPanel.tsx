@@ -14,6 +14,7 @@ import { IconChevronDown, IconLinkOff, IconPlug, IconSave, IconTrash } from './I
 
 const DEFAULT_ENDPOINT = 'ws://127.0.0.1:10000/';
 const PROFILE_STORAGE_KEY = 'carto.connectionProfiles';
+const SETTINGS_EVENT = 'carto.settings.imported';
 const DEFAULT_HEALTH_INTERVAL_MS = '5000';
 const DEFAULT_RECONNECT_BASE_DELAY_MS = '1000';
 const DEFAULT_RECONNECT_MAX_DELAY_MS = '15000';
@@ -207,6 +208,25 @@ const ConnectPanel = ({
     if (!('localStorage' in globalThis)) return;
     const stored = globalThis.localStorage.getItem(PROFILE_STORAGE_KEY);
     setProfiles(parseProfiles(stored));
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleSettingsImport = (event: Event) => {
+      const detail = (event as CustomEvent<{ type?: string }>).detail;
+      if (detail?.type && detail.type !== 'connectionProfiles') return;
+      if (!('localStorage' in globalThis)) return;
+      const stored = globalThis.localStorage.getItem(PROFILE_STORAGE_KEY);
+      const next = parseProfiles(stored);
+      setProfiles(next);
+      setSelectedProfileId((current) => {
+        if (current && next.some((entry) => entry.id === current)) return current;
+        setProfileName('');
+        return '';
+      });
+    };
+    window.addEventListener(SETTINGS_EVENT, handleSettingsImport as EventListener);
+    return () => window.removeEventListener(SETTINGS_EVENT, handleSettingsImport as EventListener);
   }, []);
 
   useEffect(() => {

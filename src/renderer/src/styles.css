@@ -163,6 +163,17 @@ body::after {
   width: 100%;
 }
 
+.rail_brand--button {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.rail_brand--button:hover .rail_name {
+  color: var(--text);
+}
+
 .rail_logo {
   width: 32px;
   height: 32px;
@@ -675,21 +686,26 @@ body::after {
 .modal {
   position: fixed;
   inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  display: grid;
+  place-items: center;
   z-index: 30;
   margin: 0;
-  padding: 0;
+  padding: 24px;
   border: none;
   background: transparent;
+  box-sizing: border-box;
 }
 
 .modal_backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(15, 23, 42, 0.35);
-  backdrop-filter: blur(2px);
+  background: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .modal_content {
@@ -697,6 +713,12 @@ body::after {
   width: min(520px, 92vw);
   z-index: 1;
   animation: fadeIn 0.25s ease both;
+}
+
+.modal::backdrop {
+  background: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .tabs_button {
@@ -979,6 +1001,156 @@ body::after {
   font-size: 13px;
 }
 
+.panel--about {
+  gap: 16px;
+}
+
+.about_header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.about_brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.about_logo {
+  width: 72px;
+  height: 72px;
+  border-radius: 14px;
+  background: var(--panel);
+  padding: 10px;
+  box-shadow: var(--shadow-soft);
+}
+
+.about_title {
+  font-size: 16px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--text);
+}
+
+.about_version {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.about_description {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.about_meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.about_row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.about_label {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 10px;
+}
+
+.about_value {
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+
+.settings_history {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.settings_stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings_io {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings_toggle {
+  justify-content: flex-start;
+}
+
+.settings_row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings_row .button input[type='file'] {
+  display: none;
+}
+
+.settings_group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings_group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings_group-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.history_list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.history_row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel-strong);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.history_label {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 
 .field {
   display: flex;
@@ -1086,21 +1258,47 @@ body::after {
 }
 
 .combo_option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: 100%;
-  text-align: left;
-  background: transparent;
   border: 1px solid transparent;
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  padding: 6px 8px;
   border-radius: 8px;
-  cursor: pointer;
+  padding: 2px 4px;
 }
 
 .combo_option:hover {
   border-color: var(--border-soft);
   background: var(--panel);
+}
+
+.combo_option_button {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 6px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.combo_option_button:focus {
+  outline: none;
+}
+
+.combo_option_button:focus-visible {
+  box-shadow: 0 0 0 2px rgba(43, 91, 215, 0.18);
+}
+
+.combo_option_remove {
+  flex: 0 0 auto;
 }
 
 .combo_empty {
