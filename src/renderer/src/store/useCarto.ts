@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   CartoMessage,
+  ConnectionTestParams,
+  ConnectionTestResult,
+  ConnectParams,
   ConnectionStatus,
   PublishEncoding,
   RecentKeyStats
@@ -41,14 +44,15 @@ export const useCarto = () => {
     if (!carto) return;
     return carto.onStatus((nextStatus) => {
       setStatus(nextStatus);
-      if (!nextStatus.connected) {
-        setSubscriptions([]);
-        setMessagesBySub({});
-        setSelectedSubId(null);
-        setRecentKeys([]);
-        setSelectedRecentKeys([]);
-      }
     });
+  }, []);
+
+  const resetLocalState = useCallback(() => {
+    setSubscriptions([]);
+    setMessagesBySub({});
+    setSelectedSubId(null);
+    setRecentKeys([]);
+    setSelectedRecentKeys([]);
   }, []);
 
   useEffect(() => {
@@ -119,18 +123,31 @@ export const useCarto = () => {
     };
   }, [status.connected, recentKeysFilter, selectedSubId]);
 
-  const connect = useCallback(async (endpoint: string, configJson?: string) => {
+  const connect = useCallback(async (params: ConnectParams) => {
     const carto = getCarto();
     if (!carto) return;
-    await carto.connect({ endpoint, mode: 'client', configJson });
-    setLastEndpoint(endpoint);
-  }, []);
+    resetLocalState();
+    await carto.connect({ ...params, mode: 'client' });
+    setLastEndpoint(params.endpoint);
+  }, [resetLocalState]);
+
+  const testConnection = useCallback(
+    async (params: ConnectionTestParams): Promise<ConnectionTestResult> => {
+      const carto = getCarto();
+      if (!carto) {
+        throw new Error('Carto API is unavailable.');
+      }
+      return carto.testConnection(params);
+    },
+    []
+  );
 
   const disconnect = useCallback(async () => {
     const carto = getCarto();
     if (!carto) return;
     await carto.disconnect();
-  }, []);
+    resetLocalState();
+  }, [resetLocalState]);
 
   const subscribe = useCallback(async (keyexpr: string, bufferSize?: number) => {
     const carto = getCarto();
@@ -210,6 +227,7 @@ export const useCarto = () => {
     setRecentKeysFilter,
     selectedMessages,
     connect,
+    testConnection,
     disconnect,
     subscribe,
     unsubscribe,

@@ -296,11 +296,14 @@ export const createRemoteApiWsDriver = (): ZenohDriver => {
     } catch (error) {
       const details = error instanceof Error ? error.message : String(error);
       const hint = buildConnectionHint(details);
-      throw new Error(
+      const connectionError = new Error(
         `Failed to connect to ${options.endpoint}. Ensure zenoh-plugin-remote-api is enabled and the WS endpoint is reachable. Details: ${details}${
           hint ? ` Hint: ${hint}` : ''
         }`
-      );
+      ) as Error & { hint?: string; details?: string };
+      connectionError.hint = hint ?? undefined;
+      connectionError.details = details;
+      throw connectionError;
     }
 
     const info = await tryInfo(session);
@@ -313,6 +316,19 @@ export const createRemoteApiWsDriver = (): ZenohDriver => {
       await session.close();
     }
     session = null;
+  };
+
+  const healthCheck = async (): Promise<void> => {
+    if (!session) {
+      throw new Error('Not connected to Zenoh.');
+    }
+    if (session.info) {
+      await session.info();
+      return;
+    }
+    if (session.getInfo) {
+      await session.getInfo();
+    }
   };
 
   const subscribe = async (options: SubscribeOptions): Promise<void> => {
@@ -382,7 +398,8 @@ export const createRemoteApiWsDriver = (): ZenohDriver => {
     disconnect,
     subscribe,
     unsubscribe,
-    publish
+    publish,
+    healthCheck
   };
 };
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Subscription } from '../store/useCarto';
+import type { LogInput, ToastInput } from '../utils/notifications';
 import {
   IconChevronDown,
   IconClose,
@@ -24,6 +25,8 @@ type SubscribePanelProps = {
   onPause: (subscriptionId: string, paused: boolean) => Promise<void>;
   onClear: (subscriptionId: string) => Promise<void>;
   onSelect: (subscriptionId: string) => void;
+  onLog: (entry: LogInput) => void;
+  onToast: (toast: ToastInput) => void;
   onClose?: () => void;
 };
 
@@ -55,6 +58,8 @@ const SubscribePanel = ({
   onPause,
   onClear,
   onSelect,
+  onLog,
+  onToast,
   onClose
 }: SubscribePanelProps) => {
   const [keyexpr, setKeyexpr] = useState(DEFAULT_KEYEXPR);
@@ -121,6 +126,25 @@ const SubscribePanel = ({
     return () => document.removeEventListener('mousedown', handlePointerDown);
   }, [showHistory]);
 
+  const reportError = (source: string, message: string, detail?: string) => {
+    setError(message);
+    onToast({ type: 'error', message, detail });
+    onLog({ level: 'error', source, message, detail });
+  };
+
+  const handleAction = async (
+    action: () => Promise<void>,
+    source: string,
+    detail?: string
+  ) => {
+    try {
+      await action();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reportError(source, message, detail);
+    }
+  };
+
   const handleSubscribe = async () => {
     const nextKeyexpr = keyexpr.trim();
     const keyexprError = nextKeyexpr ? getKeyexprError(nextKeyexpr) : null;
@@ -136,9 +160,10 @@ const SubscribePanel = ({
       await onSubscribe(nextKeyexpr, Number.isFinite(size) && size > 0 ? size : undefined);
       const next = mergeHistory(historyRef.current, [nextKeyexpr]);
       updateHistory(next);
+      onLog({ level: 'info', source: 'subscribe', message: `Subscribed to ${nextKeyexpr}.` });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setError(message);
+      reportError('subscribe', message, nextKeyexpr);
     } finally {
       setBusy(false);
     }
@@ -259,7 +284,11 @@ const SubscribePanel = ({
                   className="button button--ghost"
                   onClick={(event) => {
                     event.stopPropagation();
-                    onPause(sub.id, !sub.paused).catch(() => {});
+                    handleAction(
+                      () => onPause(sub.id, !sub.paused),
+                      'subscribe',
+                      `Pause toggle for ${sub.keyexpr}`
+                    );
                   }}
                 >
                   <span className="button_icon" aria-hidden="true">
@@ -270,7 +299,11 @@ const SubscribePanel = ({
                   className="button button--ghost"
                   onClick={(event) => {
                     event.stopPropagation();
-                    onClear(sub.id).catch(() => {});
+                    handleAction(
+                      () => onClear(sub.id),
+                      'subscribe',
+                      `Clear buffer for ${sub.keyexpr}`
+                    );
                   }}
                 >
                   <span className="button_icon" aria-hidden="true">
@@ -281,7 +314,11 @@ const SubscribePanel = ({
                   className="button button--danger"
                   onClick={(event) => {
                     event.stopPropagation();
-                    onUnsubscribe(sub.id).catch(() => {});
+                    handleAction(
+                      () => onUnsubscribe(sub.id),
+                      'subscribe',
+                      `Unsubscribe ${sub.keyexpr}`
+                    );
                   }}
                 >
                   <span className="button_icon" aria-hidden="true">

@@ -1,5 +1,6 @@
 import type { CartoMessage, RecentKeyStats } from '@shared/types';
 import type { Subscription } from '../store/useCarto';
+import type { LogInput, ToastInput } from '../utils/notifications';
 import KeyExplorer from './KeyExplorer';
 import { IconClose, IconHash, IconMonitor, IconPlus } from './Icons';
 import StreamView from './StreamView';
@@ -24,6 +25,8 @@ type MonitorViewProps = {
   onPause: (subscriptionId: string, paused: boolean) => Promise<void>;
   onClear: (subscriptionId: string) => Promise<void>;
   onSelectMessage: (msg: CartoMessage) => void;
+  onLog: (entry: LogInput) => void;
+  onToast: (toast: ToastInput) => void;
 };
 
 const MonitorView = ({
@@ -44,7 +47,9 @@ const MonitorView = ({
   onUnsubscribe,
   onPause,
   onClear,
-  onSelectMessage
+  onSelectMessage,
+  onLog,
+  onToast
 }: MonitorViewProps) => {
   if (subscriptions.length === 0) {
     return (
@@ -58,6 +63,8 @@ const MonitorView = ({
           onPause={onPause}
           onClear={onClear}
           onSelect={setSelectedSubId}
+          onLog={onLog}
+          onToast={onToast}
         />
       </div>
     );
@@ -131,6 +138,8 @@ const MonitorView = ({
                 onPause={onPause}
                 onClear={onClear}
                 onSelect={setSelectedSubId}
+                onLog={onLog}
+                onToast={onToast}
                 onClose={() => setShowSubscribe(false)}
               />
             </div>

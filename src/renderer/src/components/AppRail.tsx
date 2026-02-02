@@ -1,11 +1,11 @@
 import logoUrl from '@shared/logo.png';
-import { IconConnection, IconMonitor, IconMoon, IconPublish, IconSun } from './Icons';
+import { IconConnection, IconLogs, IconMonitor, IconMoon, IconPublish, IconSun } from './Icons';
 
 type AppRailProps = {
   theme: 'light' | 'dark';
-  view: 'monitor' | 'publish' | 'connection';
+  view: 'monitor' | 'publish' | 'connection' | 'logs';
   connected: boolean;
-  onSetView: (view: 'monitor' | 'publish' | 'connection') => void;
+  onSetView: (view: 'monitor' | 'publish' | 'connection' | 'logs') => void;
   onToggleTheme: () => void;
 };
 
@@ -44,6 +44,15 @@ const AppRail = ({ theme, view, connected, onSetView, onToggleTheme }: AppRailPr
         <span className="rail_icon" aria-hidden="true">
           <IconConnection aria-hidden="true" />
         </span>{' '}<span className="rail_label">Connection</span>
+      </button>
+      <button
+        className={`rail_button ${view === 'logs' ? 'rail_button--active' : ''}`}
+        onClick={() => onSetView('logs')}
+        title="Logs (Ctrl/Cmd+4)"
+      >
+        <span className="rail_icon" aria-hidden="true">
+          <IconLogs aria-hidden="true" />
+        </span>{' '}<span className="rail_label">Logs</span>
       </button>
     </div>
     <div className="rail_footer">

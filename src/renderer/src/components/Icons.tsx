@@ -36,6 +36,17 @@ export const IconConnection = (props: SVGProps<SVGSVGElement>) => (
   </Icon>
 );
 
+export const IconLogs = (props: SVGProps<SVGSVGElement>) => (
+  <Icon {...props}>
+    <path d="M4 6h16" />
+    <path d="M4 12h16" />
+    <path d="M4 18h16" />
+    <circle cx="6" cy="6" r="1" />
+    <circle cx="6" cy="12" r="1" />
+    <circle cx="6" cy="18" r="1" />
+  </Icon>
+);
+
 export const IconSun = (props: SVGProps<SVGSVGElement>) => (
   <Icon {...props}>
     <circle cx="12" cy="12" r="4" />
@@ -53,6 +64,14 @@ export const IconCopy = (props: SVGProps<SVGSVGElement>) => (
   <Icon {...props}>
     <rect x="9" y="9" width="11" height="11" rx="2" />
     <rect x="4" y="4" width="11" height="11" rx="2" />
+  </Icon>
+);
+
+export const IconSave = (props: SVGProps<SVGSVGElement>) => (
+  <Icon {...props}>
+    <path d="M5 3h11l3 3v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
+    <path d="M9 3v6h6" />
+    <path d="M7 14h10v6H7z" />
   </Icon>
 );
 
