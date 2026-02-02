@@ -8,6 +8,16 @@
 
 Carto is a desktop app for inspecting Zenoh traffic. It connects to a Zenoh router, subscribes to key expressions, and streams messages with live stats and decoding helpers.
 
+## Why Carto?
+
+We recently started using **Zenoh** at work, and I was looking for a tool similar in spirit to **RedisInsight**, something that makes it easy to inspect traffic, explore key expressions, and understand what’s happening on a running system.
+
+I couldn’t find a solution that worked well for our needs, so I built **Carto**!
+
+This project is intended to be useful beyond our team...soo...feel free to use it in your own projects, and if it helps (or you have ideas), I’d love feedback and contributions.
+
+Also, the name Carto comes from Cartógrafo in Spanish, which means mapmaker.
+
 ## Installation
 
 All the installation files for Windows/Mac/Linux are available on the [releases](https://github.com/derek-diaz/Carto/releases) page.

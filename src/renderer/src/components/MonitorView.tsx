@@ -1,6 +1,7 @@
 import type { CartoMessage, RecentKeyStats } from '@shared/types';
 import type { Subscription } from '../store/useCarto';
 import type { LogInput, ToastInput } from '../utils/notifications';
+import type { DecoderConfig, ProtoTypeOption } from '../utils/proto';
 import KeyExplorer from './KeyExplorer';
 import { IconClose, IconHash, IconMonitor, IconPlus } from './Icons';
 import StreamView from './StreamView';
@@ -20,13 +21,16 @@ type MonitorViewProps = {
   setMonitorTab: (tab: 'stream' | 'keys') => void;
   showSubscribe: boolean;
   setShowSubscribe: (value: boolean) => void;
-  onSubscribe: (keyexpr: string, bufferSize?: number) => Promise<string>;
+  onSubscribe: (keyexpr: string, bufferSize?: number, decoder?: DecoderConfig) => Promise<string>;
   onUnsubscribe: (subscriptionId: string) => Promise<void>;
   onPause: (subscriptionId: string, paused: boolean) => Promise<void>;
   onClear: (subscriptionId: string) => Promise<void>;
   onSelectMessage: (msg: CartoMessage) => void;
   onLog: (entry: LogInput) => void;
   onToast: (toast: ToastInput) => void;
+  protoTypes: ProtoTypeOption[];
+  decoderById: Record<string, DecoderConfig | undefined>;
+  protoTypeLabels: Record<string, string>;
 };
 
 const MonitorView = ({
@@ -49,7 +53,10 @@ const MonitorView = ({
   onClear,
   onSelectMessage,
   onLog,
-  onToast
+  onToast,
+  protoTypes,
+  decoderById,
+  protoTypeLabels
 }: MonitorViewProps) => {
   if (subscriptions.length === 0) {
     return (
@@ -65,6 +72,9 @@ const MonitorView = ({
           onSelect={setSelectedSubId}
           onLog={onLog}
           onToast={onToast}
+          protoTypes={protoTypes}
+          decoderById={decoderById}
+          protoTypeLabels={protoTypeLabels}
         />
       </div>
     );
@@ -83,18 +93,22 @@ const MonitorView = ({
                     key={sub.id}
                     className={`tab-pill ${isActive ? 'tab-pill--active' : ''}`}
                   >
-                        <button
-                          className="tab-pill_select"
-                          onClick={() => setSelectedSubId(sub.id)}
-                          type="button"
-                          title={sub.keyexpr}
-                          role="tab"
-                          aria-selected={isActive}
-                        >
-                          <span className="tabs_label">{sub.keyexpr}</span>{sub.paused ? (
-                            <>{' '}<span className="tabs_status">Paused</span></>
-                          ) : null}
-                        </button>
+                    <button
+                      className="tab-pill_select"
+                      onClick={() => setSelectedSubId(sub.id)}
+                      type="button"
+                      title={sub.keyexpr}
+                      role="tab"
+                      aria-selected={isActive}
+                    >
+                      <span className="tabs_label">{sub.keyexpr}</span>
+                      {sub.paused ? (
+                        <>
+                          {' '}
+                          <span className="tabs_status">Paused</span>
+                        </>
+                      ) : null}
+                    </button>
                     <button
                       className="tab-pill_close"
                       onClick={() => {
@@ -140,6 +154,9 @@ const MonitorView = ({
                 onSelect={setSelectedSubId}
                 onLog={onLog}
                 onToast={onToast}
+                protoTypes={protoTypes}
+                decoderById={decoderById}
+                protoTypeLabels={protoTypeLabels}
                 onClose={() => setShowSubscribe(false)}
               />
             </div>

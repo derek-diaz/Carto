@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PublishEncoding } from '@shared/types';
 import type { LogInput, ToastInput } from '../utils/notifications';
+import type { ProtoTypeOption } from '../utils/proto';
 import { IconChevronDown, IconPublish } from './Icons';
 
 export const DEFAULT_PUBLISH_KEYEXPR = 'demo/publish';
@@ -10,8 +11,9 @@ const MAX_KEYEXPR_HISTORY = 8;
 
 export type PublishDraft = {
   keyexpr: string;
-  encoding: PublishEncoding;
+  encoding: PublishEncoding | 'protobuf';
   payload: string;
+  protoTypeId?: string;
 };
 
 type PublishPanelProps = {
@@ -19,9 +21,15 @@ type PublishPanelProps = {
   publishSupport: 'supported' | 'unknown' | 'unsupported';
   draft: PublishDraft;
   onDraftChange: (next: PublishDraft) => void;
-  onPublish: (keyexpr: string, payload: string, encoding: PublishEncoding) => Promise<void>;
+  onPublish: (
+    keyexpr: string,
+    payload: string,
+    encoding: PublishDraft['encoding'],
+    protoTypeId?: string
+  ) => Promise<void>;
   onLog: (entry: LogInput) => void;
   onToast: (toast: ToastInput) => void;
+  protoTypes: ProtoTypeOption[];
 };
 
 const mergeHistory = (base: string[], add: string[]) => {
@@ -50,7 +58,8 @@ const PublishPanel = ({
   onDraftChange,
   onPublish,
   onLog,
-  onToast
+  onToast,
+  protoTypes
 }: PublishPanelProps) => {
   const [busy, setBusy] = useState(false);
   const [keyexprHistory, setKeyexprHistory] = useState<string[]>([]);
@@ -94,9 +103,13 @@ const PublishPanel = ({
   const handlePublish = async () => {
     if (!connected) return;
     const nextKeyexpr = draft.keyexpr.trim();
+    if (draft.encoding === 'protobuf' && !draft.protoTypeId) {
+      onToast({ type: 'warn', message: 'Select a protobuf type first.' });
+      return;
+    }
     setBusy(true);
     try {
-      await onPublish(nextKeyexpr, draft.payload, draft.encoding);
+      await onPublish(nextKeyexpr, draft.payload, draft.encoding, draft.protoTypeId);
       if (nextKeyexpr) {
         const next = mergeHistory(historyRef.current, [nextKeyexpr]);
         updateHistory(next);
@@ -113,6 +126,9 @@ const PublishPanel = ({
   };
 
   const renderHelper = () => {
+    if (draft.encoding === 'protobuf') {
+      return 'Payload must be valid JSON for the selected protobuf type.';
+    }
     if (draft.encoding === 'base64') {
       return 'Payload should be base64-encoded bytes.';
     }
@@ -121,6 +137,11 @@ const PublishPanel = ({
     }
     return 'Payload will be sent as UTF-8 text.';
   };
+
+  const selectedProtoType = useMemo(
+    () => protoTypes.find((type) => type.id === draft.protoTypeId),
+    [draft.protoTypeId, protoTypes]
+  );
 
   return (
     <section className="panel panel--publish">
@@ -212,16 +233,61 @@ const PublishPanel = ({
           >
             Base64
           </button>
+          <button
+            className={`segmented_button ${draft.encoding === 'protobuf' ? 'segmented_button--active' : ''}`}
+            onClick={() => {
+              const nextTypeId = draft.protoTypeId ?? protoTypes[0]?.id;
+              const next: PublishDraft = {
+                ...draft,
+                encoding: 'protobuf',
+                protoTypeId: nextTypeId
+              };
+              if (!draft.payload.trim()) next.payload = DEFAULT_PUBLISH_JSON;
+              onDraftChange(next);
+            }}
+            type="button"
+            disabled={!connected || busy || protoTypes.length === 0}
+          >
+            Protobuf
+          </button>
         </div>
         <span className="helper">{renderHelper()}</span>
       </div>
+      {draft.encoding === 'protobuf' ? (
+        <label className="field">
+          <span>Protobuf type</span>
+          <select
+            value={draft.protoTypeId ?? ''}
+            onChange={(event) =>
+              onDraftChange({ ...draft, protoTypeId: event.target.value || undefined })
+            }
+            disabled={!connected || busy || protoTypes.length === 0}
+          >
+            <option value="">Select a message type</option>
+            {protoTypes.map((type) => (
+              <option key={type.id} value={type.id}>
+                {type.label}
+              </option>
+            ))}
+          </select>
+          {selectedProtoType ? (
+            <span className="helper">Encoding as {selectedProtoType.name}.</span>
+          ) : null}
+        </label>
+      ) : null}
       <label className="field">
         <span>Payload</span>
         <textarea
           value={draft.payload}
           onChange={(event) => onDraftChange({ ...draft, payload: event.target.value })}
           rows={6}
-          placeholder={draft.encoding === 'base64' ? 'aGVsbG8=' : 'message'}
+          placeholder={
+            draft.encoding === 'base64'
+              ? 'aGVsbG8='
+              : draft.encoding === 'protobuf'
+                ? '{ "id": "abc123" }'
+                : 'message'
+          }
           disabled={!connected || busy}
         />
       </label>
@@ -229,7 +295,12 @@ const PublishPanel = ({
         <button
           className="button"
           onClick={handlePublish}
-          disabled={!connected || busy || !draft.keyexpr.trim()}
+          disabled={
+            !connected ||
+            busy ||
+            !draft.keyexpr.trim() ||
+            (draft.encoding === 'protobuf' && !draft.protoTypeId)
+          }
         >
           <span className="button_icon" aria-hidden="true">
             <IconPublish />

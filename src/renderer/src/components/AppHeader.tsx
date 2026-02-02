@@ -69,26 +69,27 @@ const AppHeader = ({
   onDisconnect
 }: AppHeaderProps) => {
   const derivedState = health?.state ?? (statusConnected ? 'connected' : 'disconnected');
-  const statusLabel =
-    derivedState === 'connected'
-      ? 'Live'
-      : derivedState === 'connecting'
-        ? 'Connecting'
-        : derivedState === 'reconnecting'
-          ? 'Reconnecting'
-          : 'Idle';
-  const statusClass =
-    derivedState === 'connected'
-      ? 'status--ok'
-      : derivedState === 'connecting' || derivedState === 'reconnecting'
-        ? 'status--warn'
-        : 'status--idle';
-  const dotClass =
-    derivedState === 'connected'
-      ? 'dot--ok'
-      : derivedState === 'connecting' || derivedState === 'reconnecting'
-        ? 'dot--warn'
-        : 'dot--idle';
+  const statusLabelMap: Record<ConnectionHealth['state'], string> = {
+    connected: 'Live',
+    connecting: 'Connecting',
+    reconnecting: 'Reconnecting',
+    disconnected: 'Idle'
+  };
+  const statusClassMap: Record<ConnectionHealth['state'], string> = {
+    connected: 'status--ok',
+    connecting: 'status--warn',
+    reconnecting: 'status--warn',
+    disconnected: 'status--idle'
+  };
+  const dotClassMap: Record<ConnectionHealth['state'], string> = {
+    connected: 'dot--ok',
+    connecting: 'dot--warn',
+    reconnecting: 'dot--warn',
+    disconnected: 'dot--idle'
+  };
+  const statusLabel = statusLabelMap[derivedState];
+  const statusClass = statusClassMap[derivedState];
+  const dotClass = dotClassMap[derivedState];
   const statusDetail = (() => {
     if (!health) return '';
     if (health.state === 'reconnecting') {
@@ -111,114 +112,118 @@ const AppHeader = ({
 
   return (
     <header className="app_header">
-    <div className="app_header-left">
-      <div className="app_title">
-        <h1>{viewTitle}</h1>
-        <p>{viewDescription}</p>
+      <div className="app_header-left">
+        <div className="app_title">
+          <h1>{viewTitle}</h1>
+          <p>{viewDescription}</p>
+        </div>
       </div>
-    </div>
-    <div className="app_header-right">
-      <div className={`status ${statusClass}`} title={statusDetail || undefined}>
-        <span className={`dot ${dotClass}`} />{' '}<span>{statusLabel}</span>
-      </div>
-      <div className="header-endpoint" title={endpointTitle}>
-        <span className="header-endpoint_label">
-          {statusConnected ? 'Endpoint' : 'Last endpoint'}
-        </span>{' '}<span className="header-endpoint_value">{endpointLabel}</span>{' '}<button
-          className="icon-button icon-button--compact icon-button--ghost"
-          onClick={() => onCopyEndpoint().catch(() => {})}
-          disabled={!lastEndpoint || !canCopyEndpoint}
-          type="button"
-          title={copied ? 'Copied' : 'Copy endpoint'}
-          aria-label="Copy endpoint"
-        >
-          <span className="icon-button_icon" aria-hidden="true">
-            <IconCopy />
-          </span>
-        </button>
-      </div>
-      <div className="app_actions">
-        {view === 'monitor' && selectedSub ? (
-          <>
-            <button
-              className="button button--ghost button--compact"
-              onClick={() => onTogglePause().catch(() => {})}
-              title="Pause or resume (Ctrl/Cmd+Shift+P)"
-              type="button"
-            >
-              <span className="button_icon" aria-hidden="true">
-                {selectedSub.paused ? <IconPlay /> : <IconPause />}
-              </span>{' '}{selectedSub.paused ? 'Resume' : 'Pause'}
-            </button>
-            <button
-              className="button button--ghost button--compact"
-              onClick={() => onClearBuffer().catch(() => {})}
-              title="Clear buffer (Ctrl/Cmd+Shift+K)"
-              type="button"
-            >
-              <span className="button_icon" aria-hidden="true">
-                <IconTrash />
-              </span>{' '}Clear buffer
-            </button>
-          </>
-        ) : null}
-        {view === 'publish' ? (
-          <>
-            <button
-              className="button button--ghost button--compact"
-              onClick={() => onUseKeyexpr()}
-              title={useKeyexprTitle}
-              type="button"
-              disabled={!canUseKeyexpr}
-            >
-              <span className="button_icon" aria-hidden="true">
-                <IconHash />
-              </span>{' '}{useKeyexprLabel}
-            </button>
-            <button
-              className="button button--ghost button--compact"
-              onClick={() => onLoadLastPublish()}
-              title="Load last publish"
-              type="button"
-              disabled={!lastPublish}
-            >
-              <span className="button_icon" aria-hidden="true">
-                <IconClock />
-              </span>{' '}Load last
-            </button>
-            <button
-              className="button button--ghost button--compact"
-              onClick={() => onReplayLast().catch(() => {})}
-              title="Replay last publish (Ctrl/Cmd+Shift+R)"
-              type="button"
-              disabled={!lastPublish || !statusConnected}
-            >
-              <span className="button_icon" aria-hidden="true">
-                <IconReplay />
-              </span>{' '}Replay last
-            </button>
-          </>
-        ) : null}
-        {statusConnected ? (
+      <div className="app_header-right">
+        <div className={`status ${statusClass}`} title={statusDetail || undefined}>
+          <span className={`dot ${dotClass}`} />{' '}<span>{statusLabel}</span>
+        </div>
+        <div className="header-endpoint" title={endpointTitle}>
+          <span className="header-endpoint_label">
+            {statusConnected ? 'Endpoint' : 'Last endpoint'}
+          </span>{' '}
+          <span className="header-endpoint_value">{endpointLabel}</span>{' '}
           <button
-            className="button button--danger button--compact"
-            onClick={() => onDisconnect().catch(() => {})}
-            title="Disconnect (Ctrl/Cmd+Shift+D)"
+            className="icon-button icon-button--compact icon-button--ghost"
+            onClick={() => onCopyEndpoint().catch(() => {})}
+            disabled={!lastEndpoint || !canCopyEndpoint}
             type="button"
+            title={copied ? 'Copied' : 'Copy endpoint'}
+            aria-label="Copy endpoint"
           >
-            <span className="button_icon" aria-hidden="true">
-              <IconLinkOff />
-            </span>{' '}Disconnect
+            <span className="icon-button_icon" aria-hidden="true">
+              <IconCopy />
+            </span>
           </button>
-        ) : null}
-        {actionNotice ? (
-          <span className={`header-notice header-notice--${actionNotice.type}`}>
-            {actionNotice.message}
-          </span>
-        ) : null}
+        </div>
+        <div className="app_actions">
+          {view === 'monitor' && selectedSub ? (
+            <>
+              <button
+                className="button button--ghost button--compact"
+                onClick={() => onTogglePause().catch(() => {})}
+                title="Pause or resume (Ctrl/Cmd+Shift+P)"
+                type="button"
+              >
+                <span className="button_icon" aria-hidden="true">
+                  {selectedSub.paused ? <IconPlay /> : <IconPause />}
+                </span>{' '}
+                {selectedSub.paused ? 'Resume' : 'Pause'}
+              </button>
+              <button
+                className="button button--ghost button--compact"
+                onClick={() => onClearBuffer().catch(() => {})}
+                title="Clear buffer (Ctrl/Cmd+Shift+K)"
+                type="button"
+              >
+                <span className="button_icon" aria-hidden="true">
+                  <IconTrash />
+                </span>{' '}Clear buffer
+              </button>
+            </>
+          ) : null}
+          {view === 'publish' ? (
+            <>
+              <button
+                className="button button--ghost button--compact"
+                onClick={() => onUseKeyexpr()}
+                title={useKeyexprTitle}
+                type="button"
+                disabled={!canUseKeyexpr}
+              >
+                <span className="button_icon" aria-hidden="true">
+                  <IconHash />
+                </span>{' '}
+                {useKeyexprLabel}
+              </button>
+              <button
+                className="button button--ghost button--compact"
+                onClick={() => onLoadLastPublish()}
+                title="Load last publish"
+                type="button"
+                disabled={!lastPublish}
+              >
+                <span className="button_icon" aria-hidden="true">
+                  <IconClock />
+                </span>{' '}Load last
+              </button>
+              <button
+                className="button button--ghost button--compact"
+                onClick={() => onReplayLast().catch(() => {})}
+                title="Replay last publish (Ctrl/Cmd+Shift+R)"
+                type="button"
+                disabled={!lastPublish || !statusConnected}
+              >
+                <span className="button_icon" aria-hidden="true">
+                  <IconReplay />
+                </span>{' '}Replay last
+              </button>
+            </>
+          ) : null}
+          {statusConnected ? (
+            <button
+              className="button button--danger button--compact"
+              onClick={() => onDisconnect().catch(() => {})}
+              title="Disconnect (Ctrl/Cmd+Shift+D)"
+              type="button"
+            >
+              <span className="button_icon" aria-hidden="true">
+                <IconLinkOff />
+              </span>{' '}Disconnect
+            </button>
+          ) : null}
+          {actionNotice ? (
+            <span className={`header-notice header-notice--${actionNotice.type}`}>
+              {actionNotice.message}
+            </span>
+          ) : null}
+        </div>
       </div>
-    </div>
-  </header>
+    </header>
   );
 };
 

@@ -399,7 +399,9 @@ export const createCartoBackend = (): CartoBackend => {
     });
 
     reconnectTimer = setTimeout(() => {
-      void startConnectionAttempt('reconnecting');
+      startConnectionAttempt('reconnecting').catch((error) => {
+        logDriverError('reconnect', error);
+      });
     }, delay);
   };
 
