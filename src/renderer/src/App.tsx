@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as protobuf from 'protobufjs';
 import type { CartoMessage, ConnectionStatus } from '@shared/types';
 import AppHeader from './components/AppHeader';
 import AppRail from './components/AppRail';
@@ -21,6 +22,7 @@ import {
   decodeProtoPayload,
   encodeProtoPayload,
   parseProtoSchema,
+  resolveDecoderTypeIds,
   type DecoderConfig,
   type ProtoSchema,
   type ProtoTypeHandle,
@@ -206,15 +208,35 @@ const App = () => {
     );
   }, [protoSchemas]);
 
+  const mergedProtoRoot = useMemo(() => {
+    if (protoSchemas.length === 0) return null;
+    const root = new protobuf.Root();
+    try {
+      for (let index = protoSchemas.length - 1; index >= 0; index -= 1) {
+        const schema = protoSchemas[index];
+        if (!schema) continue;
+        protobuf.parse(schema.source, root);
+      }
+      return root;
+    } catch {
+      return null;
+    }
+  }, [protoSchemas]);
+
   const protoTypeById = useMemo(() => {
     const map = new Map<string, ProtoTypeHandle>();
+    const lookupRoot = mergedProtoRoot;
     protoSchemas.forEach((schema) => {
       schema.types.forEach((type) => {
-        map.set(type.id, { ...type, root: schema.root, schemaName: schema.name });
+        map.set(type.id, {
+          ...type,
+          root: lookupRoot ?? schema.root,
+          schemaName: schema.name
+        });
       });
     });
     return map;
-  }, [protoSchemas]);
+  }, [mergedProtoRoot, protoSchemas]);
 
   const protoTypeLabels = useMemo(() => {
     const labels: Record<string, string> = {};
@@ -269,6 +291,16 @@ const App = () => {
         Object.entries(next).forEach(([key, decoder]) => {
           if (decoder?.kind === 'protobuf' && decoder.typeId.startsWith(`${schemaId}:`)) {
             next[key] = { kind: 'raw' };
+            return;
+          }
+          if (decoder?.kind === 'protobuf_multi') {
+            const typeIds = decoder.typeIds.filter((typeId) => !typeId.startsWith(`${schemaId}:`));
+            if (typeIds.length === 0) {
+              next[key] = { kind: 'raw' };
+              return;
+            }
+            next[key] = { kind: 'protobuf_multi', typeIds };
+            return;
           }
         });
         return next;
@@ -280,20 +312,35 @@ const App = () => {
   );
 
   const decodeProtobuf = useCallback(
-    (decoder: DecoderConfig | undefined, base64: string | undefined) => {
-      if (!decoder || decoder.kind !== 'protobuf' || !base64) return null;
-      const handle = protoTypeById.get(decoder.typeId);
-      if (!handle) {
-        return { error: 'Protobuf type is no longer available.' };
+    (decoder: DecoderConfig | undefined, message: Pick<CartoMessage, 'key' | 'base64'> | null | undefined) => {
+      if (!decoder || !message?.base64) return null;
+      const typeIds = resolveDecoderTypeIds(decoder);
+      if (typeIds.length === 0) return null;
+
+      const bytes = base64ToBytes(message.base64);
+      let firstError: string | null = null;
+
+      for (const typeId of typeIds) {
+        const handle = protoTypeById.get(typeId);
+        if (!handle) continue;
+        try {
+          const decoded = decodeProtoPayload(handle, bytes);
+          return {
+            data: decoded,
+            label: handle.name,
+            schemaName: handle.schemaName,
+            typeId: handle.id
+          };
+        } catch (error) {
+          if (!firstError) {
+            firstError = error instanceof Error ? error.message : String(error);
+          }
+        }
       }
-      try {
-        const bytes = base64ToBytes(base64);
-        const decoded = decodeProtoPayload(handle, bytes);
-        return { data: decoded, label: handle.name, schemaName: handle.schemaName };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return { error: message };
-      }
+
+      return {
+        error: firstError ?? 'Unable to decode with selected protobuf types.'
+      };
     },
     [protoTypeById]
   );
@@ -359,8 +406,8 @@ const App = () => {
   const selectedSub = subscriptions.find((sub) => sub.id === selectedSubId);
   const selectedDecoder = selectedSubId ? subscriptionDecoders[selectedSubId] : undefined;
   const protoResult = useMemo(
-    () => decodeProtobuf(selectedDecoder, selectedMessage?.base64),
-    [decodeProtobuf, selectedDecoder, selectedMessage?.base64]
+    () => decodeProtobuf(selectedDecoder, selectedMessage),
+    [decodeProtobuf, selectedDecoder, selectedMessage]
   );
   const streamTitle = selectedSub ? `Stream - ${selectedSub.keyexpr}` : 'Stream';
   const activeKeys = recentKeys;

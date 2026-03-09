@@ -54,6 +54,22 @@ const persistHistory = (entries: string[]) => {
   }
 };
 
+const decoderLabel = (
+  decoder: DecoderConfig | undefined,
+  protoTypeLabels: Record<string, string>
+): string => {
+  if (!decoder || decoder.kind === 'raw') return 'Raw';
+  if (decoder.kind === 'protobuf') {
+    return `Protobuf: ${protoTypeLabels[decoder.typeId] ?? 'Unknown'}`;
+  }
+  const labels = decoder.typeIds
+    .map((typeId) => protoTypeLabels[typeId] ?? 'Unknown')
+    .filter((label) => label.length > 0);
+  if (labels.length === 0) return 'Protobuf (multi)';
+  if (labels.length === 1) return `Protobuf: ${labels[0]}`;
+  return `Protobuf: ${labels[0]} +${labels.length - 1}`;
+};
+
 const SubscribePanel = ({
   connected,
   subscriptions,
@@ -76,7 +92,8 @@ const SubscribePanel = ({
   const [error, setError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [decoderMode, setDecoderMode] = useState<'raw' | 'protobuf'>('raw');
-  const [protoTypeId, setProtoTypeId] = useState('');
+  const [protoTypeIds, setProtoTypeIds] = useState<string[]>([]);
+  const [protoTypePicker, setProtoTypePicker] = useState('');
   const comboRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const historyRef = useRef<string[]>([]);
@@ -85,6 +102,7 @@ const SubscribePanel = ({
   const trimmedKeyexpr = keyexpr.trim();
   const validationError = trimmedKeyexpr ? getKeyexprError(trimmedKeyexpr) : null;
   const displayError = validationError ?? error;
+  const availableProtoTypes = protoTypes.filter((type) => !protoTypeIds.includes(type.id));
 
   const applyHistory = useCallback((entries: string[]) => {
     historyRef.current = entries;
@@ -183,21 +201,25 @@ const SubscribePanel = ({
 
   useEffect(() => {
     if (decoderMode !== 'protobuf') return;
-    if (!protoTypeId) return;
-    if (protoTypes.some((type) => type.id === protoTypeId)) return;
-    setProtoTypeId('');
-  }, [decoderMode, protoTypeId, protoTypes]);
+    setProtoTypeIds((prev) => prev.filter((typeId) => protoTypes.some((type) => type.id === typeId)));
+  }, [decoderMode, protoTypes]);
 
   useEffect(() => {
     if (!selectedSubId) return;
     const decoder = decoderById[selectedSubId];
     if (!decoder || decoder.kind === 'raw') {
       setDecoderMode('raw');
-      setProtoTypeId('');
+      setProtoTypeIds([]);
+      setProtoTypePicker('');
       return;
     }
     setDecoderMode('protobuf');
-    setProtoTypeId(decoder.typeId);
+    if (decoder.kind === 'protobuf') {
+      setProtoTypeIds([decoder.typeId]);
+    } else {
+      setProtoTypeIds([...new Set(decoder.typeIds)]);
+    }
+    setProtoTypePicker('');
   }, [decoderById, selectedSubId]);
 
   const reportError = (source: string, message: string, detail?: string) => {
@@ -227,18 +249,18 @@ const SubscribePanel = ({
       return;
     }
 
-    if (decoderMode === 'protobuf' && !protoTypeId) {
-      setError('Select a protobuf type before subscribing.');
+    if (decoderMode === 'protobuf' && protoTypeIds.length === 0) {
+      setError('Select at least one protobuf type before subscribing.');
       return;
     }
 
     setBusy(true);
     setError(null);
     try {
-      const decoder: DecoderConfig | undefined =
-        decoderMode === 'protobuf' && protoTypeId
-          ? { kind: 'protobuf', typeId: protoTypeId }
-          : { kind: 'raw' };
+      const decoder: DecoderConfig | undefined = (() => {
+        if (decoderMode !== 'protobuf') return { kind: 'raw' };
+        return { kind: 'protobuf_multi', typeIds: protoTypeIds };
+      })();
       await onSubscribe(nextKeyexpr, undefined, decoder);
       const next = mergeHistory(historyRef.current, [nextKeyexpr]);
       commitHistory(next);
@@ -346,7 +368,9 @@ const SubscribePanel = ({
           <button
             className={`segmented_button ${decoderMode === 'raw' ? 'segmented_button--active' : ''}`}
             type="button"
-            onClick={() => setDecoderMode('raw')}
+            onClick={() => {
+              setDecoderMode('raw');
+            }}
           >
             Raw
           </button>
@@ -365,15 +389,45 @@ const SubscribePanel = ({
       </label>
       {decoderMode === 'protobuf' ? (
         <label className="field">
-          <span>Protobuf type</span>
-          <select value={protoTypeId} onChange={(event) => setProtoTypeId(event.target.value)}>
-            <option value="">Select a message type</option>
-            {protoTypes.map((type) => (
+          <span>Protobuf types</span>
+          <select
+            value={protoTypePicker}
+            onChange={(event) => {
+              const value = event.target.value;
+              setProtoTypePicker('');
+              if (!value) return;
+              setProtoTypeIds((prev) => (prev.includes(value) ? prev : [...prev, value]));
+            }}
+          >
+            <option value="">Select a message type to add</option>
+            {availableProtoTypes.map((type) => (
               <option key={type.id} value={type.id}>
                 {type.label}
               </option>
             ))}
           </select>
+          {protoTypeIds.length > 0 ? (
+            <div className="proto_types">
+              {protoTypeIds.map((typeId) => (
+                <span key={typeId} className="proto_type">
+                  {protoTypeLabels[typeId] ?? 'Unknown'}
+                  <button
+                    className="proto_type-remove"
+                    type="button"
+                    aria-label={`Remove ${protoTypeLabels[typeId] ?? typeId}`}
+                    onClick={() =>
+                      setProtoTypeIds((prev) => prev.filter((entry) => entry !== typeId))
+                    }
+                  >
+                    <span className="icon-button_icon" aria-hidden="true">
+                      <IconClose />
+                    </span>
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : null}
+          <span className="helper">Select one or more types. Remove any using the X.</span>
         </label>
       ) : null}
       <div className="panel_actions">
@@ -385,7 +439,7 @@ const SubscribePanel = ({
             busy ||
             !trimmedKeyexpr ||
             Boolean(validationError) ||
-            (decoderMode === 'protobuf' && !protoTypeId)
+            (decoderMode === 'protobuf' && protoTypeIds.length === 0)
           }
         >
           <span className="button_icon" aria-hidden="true">
@@ -409,9 +463,7 @@ const SubscribePanel = ({
                 <div className="list_title">{sub.keyexpr}</div>
                 <div className="list_subtitle">
                   <span className="list_decoder">
-                    {decoderById[sub.id]?.kind === 'protobuf'
-                      ? `Protobuf: ${protoTypeLabels[decoderById[sub.id]?.typeId ?? ''] ?? 'Unknown'}`
-                      : 'Raw'}
+                    {decoderLabel(decoderById[sub.id], protoTypeLabels)}
                   </span>
                 </div>
               </div>

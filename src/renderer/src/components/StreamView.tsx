@@ -1,10 +1,11 @@
-import { JSX, useEffect, useMemo, useRef, useState } from 'react';
+import { JSX, useEffect, type ReactNode, useMemo, useRef, useState } from 'react';
 import type { UIEvent } from 'react';
 import { List } from 'react-window';
 import type { ListImperativeAPI, RowComponentProps } from 'react-window';
 import { AutoSizer } from 'react-virtualized-auto-sizer';
 import type { CartoMessage } from '@shared/types';
 import { formatBytes, formatTime } from '../utils/format';
+import { highlightJson } from '../utils/jsonSyntax';
 import { IconClose, IconFollow, IconHash, IconHighlighter, IconLatest, IconSearch } from './Icons';
 import type { DecoderConfig } from '../utils/proto';
 
@@ -15,7 +16,10 @@ export type StreamViewProps = {
   messages: CartoMessage[];
   onSelectMessage: (msg: CartoMessage) => void;
   decoder?: DecoderConfig;
-  decodeProtobuf?: (decoder: DecoderConfig | undefined, base64: string | undefined) => {
+  decodeProtobuf?: (
+    decoder: DecoderConfig | undefined,
+    message: Pick<CartoMessage, 'key' | 'base64'> | null | undefined
+  ) => {
     data?: unknown;
     error?: string;
     label?: string;
@@ -30,7 +34,10 @@ type RowData = {
   contentFilter: string;
   highlightMatches: boolean;
   decoder?: DecoderConfig;
-  decodeProtobuf?: (decoder: DecoderConfig | undefined, base64: string | undefined) => {
+  decodeProtobuf?: (
+    decoder: DecoderConfig | undefined,
+    message: Pick<CartoMessage, 'key' | 'base64'> | null | undefined
+  ) => {
     data?: unknown;
     error?: string;
     label?: string;
@@ -38,7 +45,13 @@ type RowData = {
   } | null;
 };
 
-const StreamView = ({ title, messages, onSelectMessage, decoder, decodeProtobuf }: StreamViewProps) => {
+const StreamView = ({
+  title,
+  messages,
+  onSelectMessage,
+  decoder,
+  decodeProtobuf
+}: StreamViewProps) => {
   const listRef = useRef<ListImperativeAPI | null>(null);
   const [followLatest, setFollowLatest] = useState(true);
   const [keyFilter, setKeyFilter] = useState('');
@@ -63,7 +76,14 @@ const StreamView = ({ title, messages, onSelectMessage, decoder, decodeProtobuf 
       }
       return true;
     });
-  }, [decodeProtobuf, decoder, filtersActive, messages, normalizedContentFilter, normalizedKeyFilter]);
+  }, [
+    decodeProtobuf,
+    decoder,
+    filtersActive,
+    messages,
+    normalizedContentFilter,
+    normalizedKeyFilter
+  ]);
 
   useEffect(() => {
     if (!followLatest || filteredMessages.length === 0) return;
@@ -102,7 +122,8 @@ const StreamView = ({ title, messages, onSelectMessage, decoder, decodeProtobuf 
           >
             <span className="button_icon" aria-hidden="true">
               <IconFollow />
-            </span>{' '}Follow
+            </span>{' '}
+            Follow
           </button>
           {!followLatest ? (
             <button
@@ -112,7 +133,8 @@ const StreamView = ({ title, messages, onSelectMessage, decoder, decodeProtobuf 
             >
               <span className="button_icon" aria-hidden="true">
                 <IconLatest />
-              </span>{' '}Latest
+              </span>{' '}
+              Latest
             </button>
           ) : null}
           <span className="badge badge--idle">{countLabel}</span>
@@ -186,7 +208,8 @@ const StreamView = ({ title, messages, onSelectMessage, decoder, decodeProtobuf 
           >
             <span className="button_icon" aria-hidden="true">
               <IconHighlighter />
-            </span>{' '}Highlight
+            </span>{' '}
+            Highlight
           </button>
           <button
             className="button button--ghost button--compact"
@@ -199,7 +222,8 @@ const StreamView = ({ title, messages, onSelectMessage, decoder, decodeProtobuf 
           >
             <span className="button_icon" aria-hidden="true">
               <IconClose />
-            </span>{' '}Clear
+            </span>{' '}
+            Clear
           </button>
         </div>
       </div>
@@ -257,7 +281,9 @@ const Row = ({
   const msg = messages[index];
   const preview = buildPreview(msg, decoder, decodeProtobuf);
   const keyNode = highlightText(msg.key, keyFilter, highlightMatches);
-  const payloadNode = highlightText(preview, contentFilter, highlightMatches);
+  const payloadNode = preview.isJson
+    ? highlightJsonText(preview.text, contentFilter, highlightMatches)
+    : highlightText(preview.text, contentFilter, highlightMatches);
   return (
     <button
       type="button"
@@ -279,55 +305,61 @@ const Row = ({
 const buildPreview = (
   msg: CartoMessage,
   decoder?: DecoderConfig,
-  decodeProtobuf?: (decoder: DecoderConfig | undefined, base64: string | undefined) => {
+  decodeProtobuf?: (
+    decoder: DecoderConfig | undefined,
+    message: Pick<CartoMessage, 'key' | 'base64'> | null | undefined
+  ) => {
     data?: unknown;
     error?: string;
     label?: string;
     schemaName?: string;
   } | null
-): string => {
-  if (decoder?.kind === 'protobuf' && decodeProtobuf && msg.base64) {
-    const result = decodeProtobuf(decoder, msg.base64);
+): { text: string; isJson: boolean } => {
+  if (decoder && decoder.kind !== 'raw' && decodeProtobuf && msg.base64) {
+    const result = decodeProtobuf(decoder, { key: msg.key, base64: msg.base64 });
     if (result?.data !== undefined) {
       try {
         const json = JSON.stringify(result.data);
-        return json.length > 140 ? `${json.slice(0, 140)}...` : json;
+        return { text: json.length > 140 ? `${json.slice(0, 140)}...` : json, isJson: true };
       } catch {
-        return '[protobuf]';
+        return { text: '[protobuf]', isJson: false };
       }
     }
     if (result?.error) {
       const detail = result.error.length > 120 ? `${result.error.slice(0, 120)}...` : result.error;
-      return `Protobuf error: ${detail}`;
+      return { text: `Protobuf error: ${detail}`, isJson: false };
     }
   }
   if (msg.encoding === 'json') {
     try {
       const json = JSON.stringify(msg.json);
-      return json.length > 140 ? `${json.slice(0, 140)}...` : json;
+      return { text: json.length > 140 ? `${json.slice(0, 140)}...` : json, isJson: true };
     } catch {
-      return '{...}';
+      return { text: '{...}', isJson: false };
     }
   }
   if (msg.encoding === 'text') {
     const text = msg.text ?? '';
-    return text.length > 140 ? `${text.slice(0, 140)}...` : text;
+    return { text: text.length > 140 ? `${text.slice(0, 140)}...` : text, isJson: false };
   }
-  return msg.base64 ? `base64:${msg.base64.slice(0, 40)}...` : '[binary]';
+  return { text: msg.base64 ? `base64:${msg.base64.slice(0, 40)}...` : '[binary]', isJson: false };
 };
 
 const getSearchablePayload = (
   msg: CartoMessage,
   decoder?: DecoderConfig,
-  decodeProtobuf?: (decoder: DecoderConfig | undefined, base64: string | undefined) => {
+  decodeProtobuf?: (
+    decoder: DecoderConfig | undefined,
+    message: Pick<CartoMessage, 'key' | 'base64'> | null | undefined
+  ) => {
     data?: unknown;
     error?: string;
     label?: string;
     schemaName?: string;
   } | null
 ): string => {
-  if (decoder?.kind === 'protobuf' && decodeProtobuf && msg.base64) {
-    const result = decodeProtobuf(decoder, msg.base64);
+  if (decoder && decoder.kind !== 'raw' && decodeProtobuf && msg.base64) {
+    const result = decodeProtobuf(decoder, { key: msg.key, base64: msg.base64 });
     if (result?.data !== undefined) {
       try {
         return JSON.stringify(result.data);
@@ -350,30 +382,70 @@ const getSearchablePayload = (
 };
 
 const highlightText = (text: string, query: string, enabled: boolean) => {
-  if (!enabled || !query) return text;
-  const lowerText = text.toLowerCase();
-  const lowerQuery = query.toLowerCase();
-  if (!lowerText.includes(lowerQuery)) return text;
+  const segments = splitByQuery(text, query, enabled);
+  if (segments.length === 1 && !segments[0].match) return text;
 
   const parts: Array<string | JSX.Element> = [];
+  segments.forEach((segment, index) => {
+    if (segment.match) {
+      parts.push(
+        <mark className="match" key={`${index}-${query}`}>
+          {segment.text}
+        </mark>
+      );
+      return;
+    }
+    if (segment.text) {
+      parts.push(segment.text);
+    }
+  });
+  return parts;
+};
+
+const highlightJsonText = (text: string, query: string, enabled: boolean): ReactNode => {
+  const segments = splitByQuery(text, query, enabled);
+  if (segments.length === 1 && !segments[0].match) {
+    return highlightJson(text);
+  }
+
+  return segments.map((segment, index) => {
+    const node = highlightJson(segment.text, `stream-${index}-`);
+    if (segment.match) {
+      return (
+        <mark className="match" key={`match-${index}`}>
+          {node}
+        </mark>
+      );
+    }
+    return <span key={`segment-${index}`}>{node}</span>;
+  });
+};
+
+const splitByQuery = (
+  text: string,
+  query: string,
+  enabled: boolean
+): Array<{ text: string; match: boolean }> => {
+  if (!enabled || !query) return [{ text, match: false }];
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  if (!lowerText.includes(lowerQuery)) return [{ text, match: false }];
+
+  const segments: Array<{ text: string; match: boolean }> = [];
   let start = 0;
   let index = lowerText.indexOf(lowerQuery, start);
   while (index !== -1) {
     if (index > start) {
-      parts.push(text.slice(start, index));
+      segments.push({ text: text.slice(start, index), match: false });
     }
-    parts.push(
-      <mark className="match" key={`${index}-${query}`}>
-        {text.slice(index, index + query.length)}
-      </mark>
-    );
+    segments.push({ text: text.slice(index, index + query.length), match: true });
     start = index + query.length;
     index = lowerText.indexOf(lowerQuery, start);
   }
   if (start < text.length) {
-    parts.push(text.slice(start));
+    segments.push({ text: text.slice(start), match: false });
   }
-  return parts;
+  return segments;
 };
 
 export default StreamView;
