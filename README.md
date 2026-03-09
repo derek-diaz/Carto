@@ -1,76 +1,130 @@
 <div align="center">
-  <img src="src/shared/logo_app.png" alt="Carto logo" width="300" height="300" />
+  <img src="src/shared/logo_app.png" alt="Carto logo" width="220" height="220" />
 
-  <p style="font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif; margin: 0;">
-    Inspect Zenoh traffic in real time.
+  <h1>Carto</h1>
+  <p><strong>Desktop Zenoh traffic inspector for Windows, macOS, and Linux</strong></p>
+  <p>Inspect, filter, decode, and publish Zenoh messages in real time.</p>
+
+  <p>
+    <a href="https://github.com/derek-diaz/Carto/releases">
+      <img src="https://img.shields.io/github/v/release/derek-diaz/Carto?label=release" alt="Latest release" />
+    </a>
+    <a href="LICENSE">
+      <img src="https://img.shields.io/github/license/derek-diaz/Carto" alt="License" />
+    </a>
+    <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-2F855A" alt="Platforms: Windows, macOS, Linux" />
+    <a href="https://github.com/derek-diaz/Carto/releases">
+      <img src="https://img.shields.io/github/release-date/derek-diaz/Carto?label=last%20release" alt="Last release date" />
+    </a>
   </p>
 </div>
 
-Carto is a desktop app for inspecting Zenoh traffic. It connects to a Zenoh router, subscribes to key expressions, and streams messages with live stats and decoding helpers.
+Carto is an open-source desktop app for Zenoh observability and debugging. It connects to a Zenoh router through the Remote API WebSocket endpoint, subscribes to key expressions, streams live traffic, and helps you inspect payloads quickly.
 
-## Why Carto?
+The name "Carto" comes from "cartografo" (Spanish for mapmaker).
 
-We recently started using **Zenoh** at work, and I was looking for a tool similar in spirit to **RedisInsight**, something that makes it easy to inspect traffic, explore key expressions, and understand what’s happening on a running system.
+## Table of Contents
 
-I couldn’t find a solution that worked well for our needs, so I built **Carto**!
+- [Features](#features)
+- [Screenshots](#screenshots)
+- [Installation](#installation)
+- [Zenoh Router Requirements](#zenoh-router-requirements)
+- [Quick Start with Docker](#quick-start-with-docker)
+- [Development](#development)
+- [Packaging](#packaging)
+- [Roadmap](#roadmap)
+- [Keywords](#keywords)
 
-This project is intended to be useful beyond our team...soo...feel free to use it in your own projects, and if it helps (or you have ideas), I’d love feedback and contributions.
+## Features
 
-Also, the name Carto comes from Cartógrafo in Spanish, which means mapmaker.
+- Live Zenoh stream monitoring by key expression
+- Multi-subscription workflow with pause, clear, and unsubscribe controls
+- Stream filtering by key and message content
+- Message drawer with decoded views for JSON, text, and binary payloads
+- Protobuf schema loading and Protobuf decode support in stream view
+- Publish messages with `json`, `text`, `base64`, and `protobuf` modes
+- Recent key explorer and key-expression history for subscribe/publish flows
+- Connection status, logs, and app-level diagnostics
+- Settings import/export for sharing local profiles and schema setup
+- Light and dark themes for long monitoring sessions
+
+## Screenshots
+
+### Dark mode stream view
+
+<p align="center">
+  <img src="docs/screenshot-1-dark-mode-stream.png" alt="Carto dark mode stream monitor with live Zenoh messages" width="760" />
+</p>
+
+### Light mode stream view
+
+<p align="center">
+  <img src="docs/screenshot-2-light-mode-stream.png" alt="Carto light mode stream monitor with key expression filters" width="760" />
+</p>
+
+### Publish workflow
+
+<p align="center">
+  <img src="docs/screenshot-3-light-mode-publish.png" alt="Carto publish panel for sending Zenoh payloads by key expression" width="760" />
+</p>
 
 ## Installation
 
-All the installation files for Windows/Mac/Linux are available on the [releases](https://github.com/derek-diaz/Carto/releases) page.
+Prebuilt installers for Windows, macOS, and Linux are available on the
+[Releases page](https://github.com/derek-diaz/Carto/releases).
 
-### Zenoh router requirements
+## Zenoh Router Requirements
 
-To use Carto, you must have a Zenoh router with the `zenoh-plugin-remote-api` plugin enabled.
+Carto requires a Zenoh router with `zenoh-plugin-remote-api` enabled.
 
-- Enable `zenoh-plugin-remote-api` on the router.
-- Ensure the remote-api WS endpoint is reachable at `ws://127.0.0.1:10000/` (or update the endpoint in the app).
-- REST is commonly exposed on `http://127.0.0.1:8000/`, but Carto uses the WS endpoint.
+- Enable `zenoh-plugin-remote-api` on your router
+- Ensure the Remote API WebSocket endpoint is reachable (default `ws://127.0.0.1:10000/`)
+- REST is often exposed at `http://127.0.0.1:8000/`, but Carto uses WebSocket
 
-The plugin is located here: [zenoh-plugin-remote-api downloads](https://download.eclipse.org/zenoh/zenoh-plugin-remote-api/).
+Useful links:
 
-Here's how to set up Docker with Zenoh plugins: [Adding plugins and backends to the container](https://zenoh.io/docs/getting-started/quick-test/#adding-plugins-and-backends-to-the-container).
+- [zenoh-plugin-remote-api downloads](https://download.eclipse.org/zenoh/zenoh-plugin-remote-api/)
+- [Adding plugins and backends to the Zenoh container](https://zenoh.io/docs/getting-started/quick-test/#adding-plugins-and-backends-to-the-container)
 
+## Quick Start with Docker
 
-## Running Zenoh with the Plugins (Docker)
-
-If you don’t already have a Zenoh router with Remote API enabled, this repository includes a
-Docker-based local Zenoh setup you can use as a starting point.
+This repository includes a local Docker setup for Zenoh + Remote API:
 
 ```bash
 cd docker
 docker compose up --build
-````
+```
 
-By default, this starts a local Zenoh router with the Remote API exposed at:
-```bash
+Default endpoint:
+
+```text
 ws://localhost:10000
 ```
-You can then point Carto at that endpoint.
 
-See `docker/README.md` for details.
+See `docker/README.md` for Docker-specific details.
 
 ## Development
 
-Make sure you have Node.js 24+ installed.
+Requirements:
+
+- Node.js 24+
+
+Run locally:
 
 ```bash
 npm install
 npm run dev
 ```
 
-## Packaging (macOS/Windows/Linux)
+## Packaging
 
-Local builds:
+Build all supported targets locally:
 
 ```bash
 npm run dist
 ```
 
-Platform-specific:
+Build per platform:
 
 ```bash
 npm run dist:mac
@@ -78,29 +132,8 @@ npm run dist:win
 npm run dist:linux
 ```
 
-# Things missing from app
+## Keywords
 
-Data Handling
+Zenoh, Eclipse Zenoh, Zenoh inspector, Zenoh monitoring, Zenoh debugging tool, Zenoh desktop client, pub/sub observability, message stream viewer, key expression explorer, Electron Zenoh app, TypeScript desktop app
 
-- Export captured messages (JSON/CSV) and import for offline review
-- Persistent capture to disk + playback/replay timeline
-- Message copy buttons (key, payload, full message)
-- Hex/raw byte view in the drawer (beyond base64)
-
-Filtering & Analysis
-
-- Advanced filters (regex, size range, time range, keyexpr include/exclude)
-- Per‑key statistics (rate, bandwidth, last seen trend)
-- Grouping/aggregations (by key, by key prefix)
-- Highlight rules / saved filters
-
-Publish Workflow
-
-- Publish templates/presets and history beyond “last publish”
-- Batch/paste multi‑message publish
-- Schema‑aware editing (JSON schema / protobuf / CBOR decode)
-
-UX/Quality
-
-- Keyboard shortcuts cheat sheet / help
-- Preferences (theme, buffer defaults, polling interval)
+Made in Puerto Rico. 🇵🇷
