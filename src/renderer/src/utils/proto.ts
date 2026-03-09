@@ -30,6 +30,10 @@ export type DecoderConfig =
   | {
       kind: 'protobuf';
       typeId: string;
+    }
+  | {
+      kind: 'protobuf_multi';
+      typeIds: string[];
     };
 
 const collectTypes = (root: protobuf.Root, schemaId: string): ProtoTypeRef[] => {
@@ -91,4 +95,10 @@ export const decodeProtoPayload = (handle: ProtoTypeHandle, bytes: Uint8Array): 
     bytes: String,
     defaults: true
   });
+};
+
+export const resolveDecoderTypeIds = (decoder: DecoderConfig | undefined): string[] => {
+  if (!decoder || decoder.kind === 'raw') return [];
+  if (decoder.kind === 'protobuf') return [decoder.typeId];
+  return [...new Set(decoder.typeIds)];
 };

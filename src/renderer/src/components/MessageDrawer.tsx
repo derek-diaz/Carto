@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { CartoMessage } from '@shared/types';
 import { formatBytes, formatTime } from '../utils/format';
+import { formatJson, highlightJson } from '../utils/jsonSyntax';
 import { IconClose } from './Icons';
 
 type MessageDrawerProps = {
@@ -10,18 +11,25 @@ type MessageDrawerProps = {
     error?: string;
     label?: string;
     schemaName?: string;
+    typeId?: string;
   } | null;
   onClose: () => void;
 };
 
 type TabId = 'json' | 'text' | 'base64' | 'protobuf';
 
-const MessageDrawer = ({ message, protoResult, onClose }: MessageDrawerProps) => {
+const MessageDrawer = ({
+  message,
+  protoResult,
+  onClose
+}: MessageDrawerProps) => {
   const [tab, setTab] = useState<TabId>('json');
+  const protobufJson = protoResult?.data !== undefined ? formatJson(protoResult.data) : '';
+  const messageJson = formatJson(message?.json);
 
   useEffect(() => {
     if (!message) return;
-    if (protoResult?.data) {
+    if (protoResult?.data !== undefined) {
       setTab('protobuf');
     } else if (message.json) {
       setTab('json');
@@ -46,7 +54,8 @@ const MessageDrawer = ({ message, protoResult, onClose }: MessageDrawerProps) =>
         <button className="button button--ghost" onClick={onClose}>
           <span className="button_icon" aria-hidden="true">
             <IconClose />
-          </span>{' '}Close
+          </span>{' '}
+          Close
         </button>
       </div>
 
@@ -54,7 +63,7 @@ const MessageDrawer = ({ message, protoResult, onClose }: MessageDrawerProps) =>
         {protoResult ? (
           <button
             className={`tab ${tab === 'protobuf' ? 'tab--active' : ''}`}
-            disabled={!protoResult.data && !protoResult.error}
+            disabled={protoResult.data === undefined && !protoResult.error}
             onClick={() => setTab('protobuf')}
           >
             Protobuf
@@ -84,15 +93,15 @@ const MessageDrawer = ({ message, protoResult, onClose }: MessageDrawerProps) =>
 
       <div className="drawer_body">
         {tab === 'protobuf' && protoResult ? (
-          protoResult.data ? (
-            <pre>{JSON.stringify(protoResult.data, null, 2)}</pre>
+          protoResult.data !== undefined ? (
+            <pre className="json_code">{highlightJson(protobufJson)}</pre>
           ) : (
             <div className="notice notice--error">
               {protoResult.error ?? 'Unable to decode protobuf payload.'}
             </div>
           )
         ) : null}
-        {tab === 'json' ? <pre>{JSON.stringify(message.json, null, 2)}</pre> : null}
+        {tab === 'json' ? <pre className="json_code">{highlightJson(messageJson)}</pre> : null}
         {tab === 'text' ? <pre>{message.text}</pre> : null}
         {tab === 'base64' ? <pre>{message.base64 ?? ''}</pre> : null}
       </div>
@@ -101,4 +110,3 @@ const MessageDrawer = ({ message, protoResult, onClose }: MessageDrawerProps) =>
 };
 
 export default MessageDrawer;
-

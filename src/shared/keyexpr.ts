@@ -17,3 +17,52 @@ export const getKeyexprError = (keyexpr: string): string | null => {
 
   return null;
 };
+
+const splitSegments = (value: string): string[] => {
+  if (!value) return [];
+  return value.split('/').filter((segment) => segment.length > 0);
+};
+
+const matchesSegments = (
+  patternSegments: string[],
+  keySegments: string[],
+  patternIndex: number,
+  keyIndex: number
+): boolean => {
+  if (patternIndex >= patternSegments.length) {
+    return keyIndex >= keySegments.length;
+  }
+
+  const segment = patternSegments[patternIndex];
+  if (segment === '**') {
+    if (patternIndex === patternSegments.length - 1) {
+      return true;
+    }
+    for (let nextKeyIndex = keyIndex; nextKeyIndex <= keySegments.length; nextKeyIndex += 1) {
+      if (matchesSegments(patternSegments, keySegments, patternIndex + 1, nextKeyIndex)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  if (keyIndex >= keySegments.length) {
+    return false;
+  }
+
+  if (segment === '*') {
+    return matchesSegments(patternSegments, keySegments, patternIndex + 1, keyIndex + 1);
+  }
+
+  if (segment !== keySegments[keyIndex]) {
+    return false;
+  }
+
+  return matchesSegments(patternSegments, keySegments, patternIndex + 1, keyIndex + 1);
+};
+
+export const keyexprMatches = (pattern: string, key: string): boolean => {
+  const patternSegments = splitSegments(pattern.trim());
+  const keySegments = splitSegments(key.trim());
+  return matchesSegments(patternSegments, keySegments, 0, 0);
+};

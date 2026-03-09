@@ -34,6 +34,11 @@
   --frame-gradient: linear-gradient(180deg, #f9fafc 0%, #eef2f7 100%);
   --header-gradient: linear-gradient(180deg, #ffffff 0%, #f0f4f8 100%);
   --header-border: #cbd3df;
+  --json-key: #1d4ed8;
+  --json-string: #0f766e;
+  --json-number: #b45309;
+  --json-boolean: #0b6772;
+  --json-null: #c3463c;
 }
 
 .theme-dark {
@@ -68,6 +73,11 @@
   --frame-gradient: linear-gradient(180deg, #121a24 0%, #0f1722 100%);
   --header-gradient: linear-gradient(180deg, #161f2b 0%, #121a24 100%);
   --header-border: rgba(91, 140, 255, 0.2);
+  --json-key: #7fb2ff;
+  --json-string: #66d9c8;
+  --json-number: #f3b46d;
+  --json-boolean: #5fd5cc;
+  --json-null: #f19283;
 }
 
 * {
@@ -1965,6 +1975,30 @@ body::after {
   word-break: break-word;
 }
 
+.json_code {
+  color: var(--text);
+}
+
+.json_token--key {
+  color: var(--json-key);
+}
+
+.json_token--string {
+  color: var(--json-string);
+}
+
+.json_token--number {
+  color: var(--json-number);
+}
+
+.json_token--boolean {
+  color: var(--json-boolean);
+}
+
+.json_token--null {
+  color: var(--json-null);
+}
+
 .proto_drop {
   border: 1px dashed var(--border-strong);
   border-radius: 12px;
@@ -2049,12 +2083,35 @@ body::after {
   border-radius: 999px;
   border: 1px solid var(--border-soft);
   background: var(--panel);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .proto_type--more {
   color: var(--muted);
   border-color: transparent;
   background: transparent;
+}
+
+.proto_type-remove {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+
+.proto_type-remove:hover {
+  color: var(--text);
+}
+
+.proto_type-remove svg {
+  width: 12px;
+  height: 12px;
 }
 
 @keyframes fadeIn {

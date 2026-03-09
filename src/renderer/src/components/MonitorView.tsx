@@ -31,7 +31,10 @@ type MonitorViewProps = {
   protoTypes: ProtoTypeOption[];
   decoderById: Record<string, DecoderConfig | undefined>;
   selectedDecoder?: DecoderConfig;
-  decodeProtobuf?: (decoder: DecoderConfig | undefined, base64: string | undefined) => {
+  decodeProtobuf?: (
+    decoder: DecoderConfig | undefined,
+    message: Pick<CartoMessage, 'key' | 'base64'> | null | undefined
+  ) => {
     data?: unknown;
     error?: string;
     label?: string;
@@ -220,4 +223,3 @@ const MonitorView = ({
 };
 
 export default MonitorView;
-
