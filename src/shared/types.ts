@@ -4,6 +4,10 @@ export type CartoMessage = {
   key: string;
   encoding: 'json' | 'text' | 'binary';
   sizeBytes: number;
+  previewBytes?: number;
+  payloadTruncated?: boolean;
+  previewText?: string;
+  searchText?: string;
   json?: unknown;
   text?: string;
   base64?: string;
@@ -13,6 +17,13 @@ export type CartoMessageEvent = {
   subscriptionId: string;
   msg: CartoMessage;
 };
+
+export type CartoMessageBatchEvent = {
+  subscriptionId: string;
+  msgs: CartoMessage[];
+};
+
+export type CartoMessagePayload = CartoMessageEvent | CartoMessageBatchEvent;
 
 export type Capabilities = {
   driver: string;
@@ -114,6 +125,11 @@ export type UnsubscribeParams = {
 export type GetRecentKeysParams = {
   filter?: string;
   subscriptionId?: string;
+};
+
+export type GetMessageParams = {
+  subscriptionId: string;
+  messageId: string;
 };
 
 export type ClearBufferParams = {

@@ -33,13 +33,14 @@ type MonitorViewProps = {
   selectedDecoder?: DecoderConfig;
   decodeProtobuf?: (
     decoder: DecoderConfig | undefined,
-    message: Pick<CartoMessage, 'key' | 'base64'> | null | undefined
+    message: Pick<CartoMessage, 'key' | 'base64' | 'payloadTruncated'> | null | undefined
   ) => {
     data?: unknown;
     error?: string;
     label?: string;
     schemaName?: string;
   } | null;
+  resolveProtobufPreview?: (message: CartoMessage) => Promise<string | null>;
   protoTypeLabels: Record<string, string>;
 };
 
@@ -68,6 +69,7 @@ const MonitorView = ({
   decoderById,
   selectedDecoder,
   decodeProtobuf,
+  resolveProtobufPreview,
   protoTypeLabels
 }: MonitorViewProps) => {
   if (subscriptions.length === 0) {
@@ -206,6 +208,7 @@ const MonitorView = ({
             onSelectMessage={onSelectMessage}
             decoder={selectedDecoder}
             decodeProtobuf={decodeProtobuf}
+            resolveProtobufPreview={resolveProtobufPreview}
           />
         </div>
         <div

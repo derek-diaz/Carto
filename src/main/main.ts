@@ -7,6 +7,7 @@ import { registerIpc } from './ipc';
 let mainWindow: BrowserWindow | null = null;
 const backend = createCartoBackend();
 const isMac = process.platform === 'darwin';
+let lastRendererReloadAt = 0;
 
 const resolveWindowIcon = (): string | undefined => {
   const cwd = process.cwd();
@@ -52,6 +53,16 @@ const createWindow = (): void => {
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
+  });
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[carto] renderer process gone', details);
+    const now = Date.now();
+    if (now - lastRendererReloadAt < 3000) return;
+    lastRendererReloadAt = now;
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.reload();
+    backend.setWebContents(mainWindow.webContents);
   });
 
   if (devUrl) {

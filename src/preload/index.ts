@@ -1,11 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
-  CartoMessageEvent,
+  CartoMessagePayload,
+  CartoMessage,
   ConnectionStatus,
   ConnectParams,
   ClearBufferParams,
   ConnectionTestParams,
   ConnectionTestResult,
+  GetMessageParams,
   GetRecentKeysParams,
   PauseParams,
   PublishParams,
@@ -21,10 +23,11 @@ export type CartoApi = {
   subscribe: (params: SubscribeParams) => Promise<string>;
   unsubscribe: (params: UnsubscribeParams) => Promise<void>;
   pause: (params: PauseParams) => Promise<void>;
+  getMessage: (params: GetMessageParams) => Promise<CartoMessage | null>;
   getRecentKeys: (params?: GetRecentKeysParams) => Promise<RecentKeyStats[]>;
   clearBuffer: (params: ClearBufferParams) => Promise<void>;
   publish: (params: PublishParams) => Promise<void>;
-  onMessage: (callback: (event: CartoMessageEvent) => void) => () => void;
+  onMessage: (callback: (payload: CartoMessagePayload) => void) => () => void;
   onStatus: (callback: (status: ConnectionStatus) => void) => () => void;
 };
 
@@ -35,11 +38,12 @@ const api: CartoApi = {
   subscribe: (params) => ipcRenderer.invoke('carto.subscribe', params),
   unsubscribe: (params) => ipcRenderer.invoke('carto.unsubscribe', params),
   pause: (params) => ipcRenderer.invoke('carto.pause', params),
+  getMessage: (params) => ipcRenderer.invoke('carto.getMessage', params),
   getRecentKeys: (params) => ipcRenderer.invoke('carto.getRecentKeys', params ?? {}),
   clearBuffer: (params) => ipcRenderer.invoke('carto.clearBuffer', params),
   publish: (params) => ipcRenderer.invoke('carto.publish', params),
   onMessage: (callback) => {
-    const listener = (_event: Electron.IpcRendererEvent, payload: CartoMessageEvent) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: CartoMessagePayload) => {
       callback(payload);
     };
     ipcRenderer.on('carto.message', listener);

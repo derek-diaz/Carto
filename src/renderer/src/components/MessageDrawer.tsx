@@ -85,6 +85,7 @@ const MessageDrawer = ({
         </button>
         <button
           className={`tab ${tab === 'base64' ? 'tab--active' : ''}`}
+          disabled={!message.base64}
           onClick={() => setTab('base64')}
         >
           Base64
@@ -92,6 +93,15 @@ const MessageDrawer = ({
       </div>
 
       <div className="drawer_body">
+        {message.payloadTruncated ? (
+          <div className="notice notice--info-warning">
+            Showing preview payload ({formatBytes(message.previewBytes ?? 0)} of{' '}
+            {formatBytes(message.sizeBytes)}).
+          </div>
+        ) : null}
+        {!message.json && !message.text && !message.base64 ? (
+          <div className="notice notice--info">Loading full payload…</div>
+        ) : null}
         {tab === 'protobuf' && protoResult ? (
           protoResult.data !== undefined ? (
             <pre className="json_code">{highlightJson(protobufJson)}</pre>
@@ -102,8 +112,12 @@ const MessageDrawer = ({
           )
         ) : null}
         {tab === 'json' ? <pre className="json_code">{highlightJson(messageJson)}</pre> : null}
-        {tab === 'text' ? <pre>{message.text}</pre> : null}
-        {tab === 'base64' ? <pre>{message.base64 ?? ''}</pre> : null}
+        {tab === 'text' ? (
+          <pre>{message.payloadTruncated ? `${message.text ?? ''}\n...` : message.text}</pre>
+        ) : null}
+        {tab === 'base64' ? (
+          <pre>{message.payloadTruncated ? `${message.base64 ?? ''}\n...` : message.base64 ?? ''}</pre>
+        ) : null}
       </div>
     </aside>
   );
