@@ -46,6 +46,7 @@ const SETTINGS_EVENT = 'carto.settings.imported';
 const DEFAULT_RING_BUFFER = 200;
 const MIN_RING_BUFFER = 10;
 const MAX_RING_BUFFER = 5000;
+const MAX_PROTO_TABLE_PREVIEW_CHARS = 220;
 
 const appInfo = pkg as {
   name?: string;
@@ -59,6 +60,59 @@ const createId = () => {
   const cryptoObj = globalThis.crypto as { randomUUID?: () => string } | undefined;
   if (cryptoObj?.randomUUID) return cryptoObj.randomUUID();
   return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
+
+const formatProtoPreviewAtom = (value: unknown): string => {
+  if (value === null) return 'null';
+  if (value === undefined) return 'undefined';
+  if (typeof value === 'string') return `"${value}"`;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  if (Array.isArray(value)) return `[${value.length}]`;
+  if (typeof value === 'object') return '{...}';
+  return String(value);
+};
+
+const toProtoTablePreview = (value: unknown): string => {
+  let formatted: string;
+  if (value === null) {
+    formatted = 'null';
+  } else if (value === undefined) {
+    formatted = 'undefined';
+  } else if (
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint' ||
+    typeof value === 'string'
+  ) {
+    formatted = String(value);
+  } else if (Array.isArray(value)) {
+    try {
+      formatted = JSON.stringify(value);
+    } catch {
+      const head = value.slice(0, 4).map((entry) => formatProtoPreviewAtom(entry)).join(', ');
+      formatted = `[${head}${value.length > 4 ? ', ...' : ''}]`;
+    }
+  } else if (typeof value === 'object') {
+    try {
+      formatted = JSON.stringify(value);
+    } catch {
+      const entries = Object.entries(value as Record<string, unknown>);
+      const head = entries
+        .slice(0, 8)
+        .map(([key, entry]) => `${key}:${formatProtoPreviewAtom(entry)}`)
+        .join(', ');
+      formatted = `{${head}${entries.length > 8 ? ', ...' : ''}}`;
+    }
+  } else {
+    formatted = String(value);
+  }
+
+  if (formatted.length > MAX_PROTO_TABLE_PREVIEW_CHARS) {
+    return `${formatted.slice(0, MAX_PROTO_TABLE_PREVIEW_CHARS)}...`;
+  }
+  return formatted;
 };
 
 type StoredProtoSchema = {
@@ -121,6 +175,7 @@ const App = () => {
     unsubscribe,
     setPaused,
     clearBuffer,
+    getMessage,
     publish
   } = useCarto();
 
@@ -135,6 +190,7 @@ const App = () => {
   >({});
 
   const [selectedMessage, setSelectedMessage] = useState<CartoMessage | null>(null);
+  const selectedMessageRequestRef = useRef(0);
   const [copied, setCopied] = useState(false);
   const [publishDraft, setPublishDraft] = useState<PublishDraft>({
     keyexpr: DEFAULT_PUBLISH_KEYEXPR,
@@ -149,6 +205,20 @@ const App = () => {
   } | null>(null);
   const [showSubscribe, setShowSubscribe] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
+
+  useEffect(() => {
+    if (typeof performance === 'undefined') return;
+    if (typeof performance.clearMeasures !== 'function' || typeof performance.clearMarks !== 'function') {
+      return;
+    }
+    const timer = globalThis.setInterval(() => {
+      performance.clearMeasures();
+      performance.clearMarks();
+    }, 5000);
+    return () => {
+      globalThis.clearInterval(timer);
+    };
+  }, []);
 
   const dismissToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
@@ -312,8 +382,16 @@ const App = () => {
   );
 
   const decodeProtobuf = useCallback(
-    (decoder: DecoderConfig | undefined, message: Pick<CartoMessage, 'key' | 'base64'> | null | undefined) => {
+    (
+      decoder: DecoderConfig | undefined,
+      message: Pick<CartoMessage, 'key' | 'base64' | 'payloadTruncated'> | null | undefined
+    ) => {
       if (!decoder || !message?.base64) return null;
+      if (message.payloadTruncated) {
+        return {
+          error: 'Payload preview is truncated; protobuf decode needs the full message.'
+        };
+      }
       const typeIds = resolveDecoderTypeIds(decoder);
       if (typeIds.length === 0) return null;
 
@@ -347,6 +425,7 @@ const App = () => {
 
   useEffect(() => {
     setSelectedMessage(null);
+    selectedMessageRequestRef.current += 1;
   }, [selectedSubId]);
 
   useEffect(() => {
@@ -408,6 +487,23 @@ const App = () => {
   const protoResult = useMemo(
     () => decodeProtobuf(selectedDecoder, selectedMessage),
     [decodeProtobuf, selectedDecoder, selectedMessage]
+  );
+  const resolveProtobufPreview = useCallback(
+    async (message: CartoMessage): Promise<string | null> => {
+      if (!selectedSubId || !selectedDecoder || selectedDecoder.kind === 'raw') {
+        return null;
+      }
+      try {
+        const fullMessage = await getMessage(selectedSubId, message.id);
+        if (!fullMessage) return null;
+        const decoded = decodeProtobuf(selectedDecoder, fullMessage);
+        if (!decoded?.data) return null;
+        return toProtoTablePreview(decoded.data);
+      } catch {
+        return null;
+      }
+    },
+    [decodeProtobuf, getMessage, selectedDecoder, selectedSubId]
   );
   const streamTitle = selectedSub ? `Stream - ${selectedSub.keyexpr}` : 'Stream';
   const activeKeys = recentKeys;
@@ -895,7 +991,34 @@ const App = () => {
   const handleClearBuffer = useCallback(async () => {
     if (!selectedSub || !status.connected) return;
     await clearBuffer(selectedSub.id);
+    selectedMessageRequestRef.current += 1;
+    setSelectedMessage(null);
   }, [clearBuffer, selectedSub, status.connected]);
+
+  const handleSelectMessage = useCallback(
+    async (msg: CartoMessage) => {
+      setSelectedMessage(msg);
+      if (!selectedSubId) return;
+      const requestId = selectedMessageRequestRef.current + 1;
+      selectedMessageRequestRef.current = requestId;
+      try {
+        const full = await getMessage(selectedSubId, msg.id);
+        if (selectedMessageRequestRef.current !== requestId) return;
+        if (!full) {
+          setSelectedMessage({
+            ...msg,
+            encoding: 'text',
+            text: 'Message is no longer available.'
+          });
+          return;
+        }
+        setSelectedMessage(full);
+      } catch {
+        // ignore detail fetch errors and keep lightweight row payload
+      }
+    },
+    [getMessage, selectedSubId]
+  );
 
   const handleDisconnect = useCallback(async () => {
     try {
@@ -1086,13 +1209,14 @@ const App = () => {
                 onUnsubscribe={handleUnsubscribe}
                 onPause={setPaused}
                 onClear={clearBuffer}
-                onSelectMessage={setSelectedMessage}
+                onSelectMessage={handleSelectMessage}
                 onLog={addLog}
                 onToast={addToast}
                 protoTypes={protoTypeOptions}
                 decoderById={subscriptionDecoders}
                 selectedDecoder={selectedDecoder}
                 decodeProtobuf={decodeProtobuf}
+                resolveProtobufPreview={resolveProtobufPreview}
                 protoTypeLabels={protoTypeLabels}
               />
             ) : null}
@@ -1149,7 +1273,10 @@ const App = () => {
       <MessageDrawer
         message={selectedMessage}
         protoResult={protoResult}
-        onClose={() => setSelectedMessage(null)}
+        onClose={() => {
+          selectedMessageRequestRef.current += 1;
+          setSelectedMessage(null);
+        }}
       />
       <AboutDialog
         open={showAbout}

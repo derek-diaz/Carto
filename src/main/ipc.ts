@@ -4,6 +4,7 @@ import type {
   ConnectParams,
   ConnectionTestParams,
   ConnectionTestResult,
+  GetMessageParams,
   GetRecentKeysParams,
   PauseParams,
   PublishParams,
@@ -36,6 +37,10 @@ export const registerIpc = (backend: CartoBackend): void => {
 
   ipcMain.handle('carto.pause', async (_event, params: PauseParams) => {
     await backend.pause(params.subscriptionId, params.paused);
+  });
+
+  ipcMain.handle('carto.getMessage', async (_event, params: GetMessageParams) => {
+    return backend.getMessage(params.subscriptionId, params.messageId);
   });
 
   ipcMain.handle('carto.getRecentKeys', async (_event, params: GetRecentKeysParams) => {
