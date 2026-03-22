@@ -96,12 +96,6 @@ Pull the published image:
 docker pull gigabit77/carto:latest
 ```
 
-Build the web container:
-
-```bash
-docker build -t carto .
-```
-
 Run it:
 
 ```bash
@@ -113,9 +107,6 @@ Then open:
 ```text
 http://localhost:8080
 ```
-
-This is a single Linux container that serves the Vite React UI and the Carto backend from the same Node process. It works across Windows, macOS, and Linux hosts that can run Linux containers.
-
 If your Zenoh router is running on the same machine as Docker, you can use the normal local endpoint:
 
 ```text
@@ -123,20 +114,6 @@ ws://127.0.0.1:10000/
 ```
 
 Carto rewrites loopback addresses inside the container to the Docker host automatically. Direct non-loopback IPs also work as long as they are reachable from the container network.
-
-## Docker Publishing
-
-Tagged releases publish a multi-arch Docker image to Docker Hub at `gigabit77/carto`.
-
-GitHub Actions expects this repository secret:
-
-- `DOCKERHUB_TOKEN`: Docker Hub access token for the `gigabit77` account
-
-When you push a tag like `v0.4.0`, the workflow publishes:
-
-- `gigabit77/carto:0.4.0`
-- `gigabit77/carto:0.4`
-- `gigabit77/carto:latest`
 
 ## Zenoh Router Docker
 
