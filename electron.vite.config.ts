@@ -1,8 +1,8 @@
+// @ts-nocheck
 import path from 'node:path';
 import { defineConfig } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 
-const mainEntry = path.resolve(__dirname, 'src/main/main.ts');
 export default defineConfig({
   main: {
     ssr: {
@@ -16,7 +16,7 @@ export default defineConfig({
       outDir: 'out/main',
       rollupOptions: {
         external: ['@eclipse-zenoh/zenoh-ts'],
-        input: mainEntry
+        input: path.resolve(__dirname, 'apps/desktop/src/main/main.ts')
       }
     }
   },
@@ -25,16 +25,17 @@ export default defineConfig({
       sourcemap: true,
       outDir: 'out/preload',
       rollupOptions: {
-        input: path.resolve(__dirname, 'src/preload/index.ts')
+        input: path.resolve(__dirname, 'apps/desktop/src/preload/index.ts')
       }
     }
   },
   renderer: {
-    root: path.resolve(__dirname, 'src/renderer'),
+    root: path.resolve(__dirname, 'apps/web'),
     plugins: [react()],
     resolve: {
       alias: {
-        '@shared': path.resolve(__dirname, 'src/shared')
+        '@shared': path.resolve(__dirname, 'packages/core/src/shared'),
+        '@core': path.resolve(__dirname, 'packages/core/src')
       }
     },
     server: {
@@ -43,7 +44,10 @@ export default defineConfig({
     },
     build: {
       outDir: path.resolve(__dirname, 'out/renderer'),
-      emptyOutDir: true
+      emptyOutDir: true,
+      rollupOptions: {
+        input: path.resolve(__dirname, 'apps/web/index.html')
+      }
     }
   }
 });

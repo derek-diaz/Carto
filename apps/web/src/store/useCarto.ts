@@ -9,6 +9,7 @@ import type {
   PublishEncoding,
   RecentKeyStats
 } from '@shared/types';
+import { getCartoClient } from '../lib/cartoClient';
 
 export type Subscription = {
   id: string;
@@ -18,7 +19,7 @@ export type Subscription = {
 };
 
 const DEFAULT_BUFFER = 200;
-const RENDER_FLUSH_INTERVAL_MS = 50;
+const RENDER_FLUSH_INTERVAL_MS = 16;
 
 const appendBatchToBuffer = (
   buffer: CartoMessage[],
@@ -73,7 +74,7 @@ export const useCarto = () => {
     setSelectedMessages(current.slice());
   }, [selectedSubId]);
 
-  const getCarto = () => (globalThis as unknown as Window).carto;
+  const getCarto = () => getCartoClient();
 
   useEffect(() => {
     const carto = getCarto();

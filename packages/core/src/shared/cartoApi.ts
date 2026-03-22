@@ -13,9 +13,9 @@ import type {
   RecentKeyStats,
   SubscribeParams,
   UnsubscribeParams
-} from '@shared/types';
+} from './types';
 
-type CartoApi = {
+export type CartoApi = {
   connect: (params: ConnectParams) => Promise<void>;
   testConnection: (params: ConnectionTestParams) => Promise<ConnectionTestResult>;
   disconnect: () => Promise<void>;
@@ -29,11 +29,3 @@ type CartoApi = {
   onMessage: (callback: (payload: CartoMessagePayload) => void) => () => void;
   onStatus: (callback: (status: ConnectionStatus) => void) => () => void;
 };
-
-declare global {
-  interface Window {
-    carto: CartoApi;
-  }
-}
-
-export {};

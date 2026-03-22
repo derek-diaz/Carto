@@ -1,4 +1,7 @@
-import type { Capabilities } from '../../shared/types';
+import { lookup } from 'node:dns/promises';
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import type { Capabilities } from '../shared/types';
 import type { ConnectOptions, PublishOptions, SubscribeOptions, ZenohDriver } from './driver';
 import { NodeWebSocket } from './nodeWebSocket';
 
@@ -24,6 +27,13 @@ type ZenohModule = {
   };
 };
 
+const importZenohModule = new Function(
+  'specifier',
+  'return import(specifier);'
+) as (specifier: string) => Promise<ZenohModule>;
+
+let cachedContainerLocalTarget: string | null | undefined;
+
 export const createRemoteApiWsDriver = (): ZenohDriver => {
   let session: ZenohSession | null = null;
   const subscriptions = new Map<string, SubscriptionHandle>();
@@ -31,7 +41,7 @@ export const createRemoteApiWsDriver = (): ZenohDriver => {
   const loadZenohModule = async (): Promise<ZenohModule> => {
     try {
       const modulePath = '@eclipse-zenoh/zenoh-ts';
-      return (await import(/* @vite-ignore */ modulePath)) as ZenohModule;
+      return (await importZenohModule(modulePath)) as ZenohModule;
     } catch (error) {
       const details = error instanceof Error ? error.message : String(error);
       throw new Error(
@@ -55,7 +65,7 @@ export const createRemoteApiWsDriver = (): ZenohDriver => {
     globalWithWebSocket.WebSocket = NodeWebSocket;
   };
 
-  const buildConfig = (endpoint: string, configJson?: string): Record<string, unknown> => {
+  const buildConfig = async (endpoint: string, configJson?: string): Promise<Record<string, unknown>> => {
     let config: Record<string, unknown> = {};
     if (configJson?.trim()) {
       try {
@@ -72,7 +82,8 @@ export const createRemoteApiWsDriver = (): ZenohDriver => {
     }
 
     const nextConfig: Record<string, unknown> = { ...config };
-    const locator = typeof nextConfig.locator === 'string' ? nextConfig.locator : endpoint;
+    const rawLocator = typeof nextConfig.locator === 'string' ? nextConfig.locator : endpoint;
+    const locator = await normalizeEndpoint(rawLocator);
     const messageResponseTimeoutMs =
       typeof nextConfig.messageResponseTimeoutMs === 'number' &&
       Number.isFinite(nextConfig.messageResponseTimeoutMs)
@@ -290,7 +301,7 @@ export const createRemoteApiWsDriver = (): ZenohDriver => {
       );
     }
 
-    const config = buildConfig(options.endpoint, options.configJson);
+    const config = await buildConfig(options.endpoint, options.configJson);
     try {
       session = await open(config);
     } catch (error) {
@@ -438,4 +449,88 @@ const isRemoteApiTimeout = (error: unknown): boolean => {
   if (!error) return false;
   const message = error instanceof Error ? error.message : String(error);
   return REMOTE_API_TIMEOUT_RE.test(message);
+};
+
+const normalizeEndpoint = async (endpoint: string): Promise<string> => {
+  if (!shouldRewriteLocalEndpoint()) return endpoint;
+
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return endpoint;
+  }
+
+  if (!isLoopbackHost(url.hostname)) {
+    return endpoint;
+  }
+
+  const replacement = await resolveContainerLocalTarget();
+  if (!replacement) {
+    return endpoint;
+  }
+
+  url.hostname = replacement;
+  return url.toString();
+};
+
+const shouldRewriteLocalEndpoint = (): boolean => {
+  if (process.env.CARTO_CONTAINERIZED === '1') return true;
+  return existsSync('/.dockerenv');
+};
+
+const isLoopbackHost = (hostname: string): boolean => {
+  const normalized = hostname.trim().toLowerCase();
+  return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1';
+};
+
+const resolveContainerLocalTarget = async (): Promise<string | null> => {
+  if (cachedContainerLocalTarget !== undefined) {
+    return cachedContainerLocalTarget;
+  }
+
+  const explicit = process.env.CARTO_LOCALHOST_TARGET?.trim();
+  if (explicit) {
+    cachedContainerLocalTarget = explicit;
+    return cachedContainerLocalTarget;
+  }
+
+  try {
+    const resolved = await lookup('host.docker.internal');
+    if (resolved.address) {
+      cachedContainerLocalTarget = resolved.address;
+      return cachedContainerLocalTarget;
+    }
+  } catch {
+    // fall through to Linux gateway detection
+  }
+
+  try {
+    const routeTable = await readFile('/proc/net/route', 'utf8');
+    const gateway = parseDefaultGateway(routeTable);
+    if (gateway) {
+      cachedContainerLocalTarget = gateway;
+      return cachedContainerLocalTarget;
+    }
+  } catch {
+    // ignore route-table failures
+  }
+
+  cachedContainerLocalTarget = null;
+  return cachedContainerLocalTarget;
+};
+
+const parseDefaultGateway = (routeTable: string): string | null => {
+  const lines = routeTable.split(/\r?\n/);
+  for (const line of lines.slice(1)) {
+    const columns = line.trim().split(/\s+/);
+    if (columns.length < 3) continue;
+    const destination = columns[1];
+    const gatewayHex = columns[2];
+    if (destination !== '00000000') continue;
+    const bytes = gatewayHex.match(/../g);
+    if (!bytes || bytes.length !== 4) continue;
+    return bytes.reverse().map((part) => String(parseInt(part, 16))).join('.');
+  }
+  return null;
 };

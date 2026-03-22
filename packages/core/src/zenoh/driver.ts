@@ -1,4 +1,4 @@
-import type { Capabilities } from '../../shared/types';
+import type { Capabilities } from '../shared/types';
 
 export type DriverMessage = {
   key: string;

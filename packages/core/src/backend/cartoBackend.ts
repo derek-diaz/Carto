@@ -1,4 +1,3 @@
-import type { WebContents } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { Worker } from 'node:worker_threads';
@@ -17,10 +16,11 @@ import type {
   RecentKeyStats,
   ReconnectConfig,
   TlsConfig
-} from '../../shared/types';
-import { getKeyexprError } from '../../shared/keyexpr';
+} from '../shared/types';
+import { getKeyexprError } from '../shared/keyexpr';
 import { createRingBuffer, type RingBuffer } from './ringBuffer';
 import { createRecentKeysIndex, type RecentKeysIndex } from './recentKeys';
+import type { CartoEventSink } from './eventSink';
 import type { DriverMessage, ZenohDriver } from '../zenoh/driver';
 import { createRemoteApiWsDriver } from '../zenoh/remoteApiWsDriver';
 import {
@@ -38,9 +38,8 @@ const MAX_PAYLOAD_PREVIEW_BYTES = 1024;
 const MAX_BASE64_PREVIEW_BYTES = 384;
 const MAX_PREVIEW_TEXT_CHARS = 140;
 const MAX_SEARCH_TEXT_CHARS = 256;
-const DISPOSED_FRAME_RE = /render frame was disposed|object has been destroyed/i;
-const RENDERER_FLUSH_INTERVAL_MS = 80;
-const MAX_RENDER_QUEUE_MESSAGES_PER_SUB = 4;
+const RENDERER_FLUSH_INTERVAL_MS = 16;
+const MAX_RENDER_QUEUE_MESSAGES_PER_SUB = 64;
 const DETAIL_DECODE_TIMEOUT_MS = 5000;
 const MAX_DETAIL_CACHE_MESSAGES_PER_SUB = 256;
 const MAX_DETAIL_CACHE_BYTES_PER_SUB = 192 * 1024 * 1024;
@@ -145,7 +144,8 @@ type SubscriptionState = {
 };
 
 export type CartoBackend = {
-  setWebContents: (webContents: WebContents) => void;
+  setEventSink: (eventSink: CartoEventSink | null) => void;
+  getStatus: () => ConnectionStatus;
   connect: (params: ConnectParams) => Promise<void>;
   testConnection: (params: ConnectionTestParams) => Promise<ConnectionTestResult>;
   disconnect: () => Promise<void>;
@@ -160,7 +160,7 @@ export type CartoBackend = {
 
 export const createCartoBackend = (): CartoBackend => {
   let driver: ZenohDriver | null = null;
-  let webContents: WebContents | null = null;
+  let eventSink: CartoEventSink | null = null;
   const subscriptions = new Map<string, SubscriptionState>();
   const recentKeys = createRecentKeysIndex();
   let capabilities: Capabilities | null = null;
@@ -170,6 +170,7 @@ export const createCartoBackend = (): CartoBackend => {
   let reconnectAttempt = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let healthTimer: ReturnType<typeof setInterval> | null = null;
+  let lastTrafficAt = 0;
   let rendererFlushTimer: ReturnType<typeof setTimeout> | null = null;
   let rendererQueue = new Map<string, CartoMessage[]>();
   let detailDecodeWorker: Worker | null = null;
@@ -258,33 +259,6 @@ export const createCartoBackend = (): CartoBackend => {
     });
   };
 
-  const canSendToRenderer = (contents: WebContents): boolean => {
-    try {
-      if (contents.isDestroyed() || contents.isCrashed()) return false;
-      const frame = contents.mainFrame;
-      return Boolean(frame) && !frame.isDestroyed();
-    } catch {
-      return false;
-    }
-  };
-
-  const sendToRenderer = (channel: string, payload: unknown): void => {
-    const target = webContents;
-    if (!target || !canSendToRenderer(target)) return;
-    try {
-      target.send(channel, payload);
-    } catch (error) {
-      const message = getErrorMessage(error);
-      if (DISPOSED_FRAME_RE.test(message)) {
-        if (webContents === target) {
-          webContents = null;
-        }
-        return;
-      }
-      console.error(`[carto] failed to send ${channel}: ${message}`);
-    }
-  };
-
   const clearRendererQueue = (): void => {
     rendererQueue.clear();
     if (rendererFlushTimer) {
@@ -303,7 +277,7 @@ export const createCartoBackend = (): CartoBackend => {
     for (const [subscriptionId, msgs] of queued.entries()) {
       if (msgs.length === 0) continue;
       const payload: CartoMessageBatchEvent = { subscriptionId, msgs };
-      sendToRenderer('carto.message', payload);
+      eventSink?.sendMessage(payload);
     }
   };
 
@@ -328,7 +302,7 @@ export const createCartoBackend = (): CartoBackend => {
   };
 
   const emitStatus = (): void => {
-    sendToRenderer('carto.status', status);
+    eventSink?.sendStatus(status);
   };
 
   const updateHealth = (partial: Partial<ConnectionHealth>): void => {
@@ -400,6 +374,7 @@ export const createCartoBackend = (): CartoBackend => {
   const handleMessage = (subscriptionId: string, msg: DriverMessage): void => {
     const state = subscriptions.get(subscriptionId);
     if (!state) return;
+    lastTrafficAt = Date.now();
 
     const decoded = decodePayload(msg.payload);
     const ts = msg.ts ?? Date.now();
@@ -426,21 +401,10 @@ export const createCartoBackend = (): CartoBackend => {
     }
   };
 
-  const setWebContents = (contents: WebContents): void => {
+  const setEventSink = (nextEventSink: CartoEventSink | null): void => {
     clearRendererQueue();
-    webContents = contents;
-    contents.once('destroyed', () => {
-      if (webContents === contents) {
-        webContents = null;
-        clearRendererQueue();
-      }
-    });
-    contents.on('render-process-gone', () => {
-      if (webContents === contents) {
-        webContents = null;
-        clearRendererQueue();
-      }
-    });
+    eventSink = nextEventSink;
+    emitStatus();
   };
 
   const nextConnectToken = (): number => {
@@ -586,8 +550,15 @@ export const createCartoBackend = (): CartoBackend => {
     healthTimer = setInterval(async () => {
       if (!driver || !driver.healthCheck) return;
       try {
+        const now = Date.now();
+        const hasRecentTraffic =
+          subscriptions.size > 0 && lastTrafficAt > 0 && now - lastTrafficAt < healthIntervalMs;
+        if (hasRecentTraffic) {
+          updateHealth({ lastHeartbeatAt: now });
+          return;
+        }
         await driver.healthCheck();
-        updateHealth({ lastHeartbeatAt: Date.now() });
+        updateHealth({ lastHeartbeatAt: now });
       } catch (error) {
         await handleConnectionLoss(error);
       }
@@ -717,6 +688,7 @@ export const createCartoBackend = (): CartoBackend => {
       capabilities = caps;
       reconnectAttempt = 0;
       const connectedAt = Date.now();
+      lastTrafficAt = connectedAt;
 
       setConnectionState(
         true,
@@ -830,6 +802,7 @@ export const createCartoBackend = (): CartoBackend => {
     reconnectConfig = normalizeReconnectConfig(params.reconnect);
     healthIntervalMs = normalizeHealthInterval(params.healthCheckIntervalMs);
     reconnectAttempt = 0;
+    lastTrafficAt = 0;
 
     clearReconnectTimer();
     clearHealthTimer();
@@ -982,7 +955,8 @@ export const createCartoBackend = (): CartoBackend => {
   };
 
   return {
-    setWebContents,
+    setEventSink,
+    getStatus: () => status,
     connect,
     testConnection,
     disconnect,

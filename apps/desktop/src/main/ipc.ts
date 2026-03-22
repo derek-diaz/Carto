@@ -10,8 +10,8 @@ import type {
   PublishParams,
   SubscribeParams,
   UnsubscribeParams
-} from '../shared/types';
-import type { CartoBackend } from './backend/cartoBackend';
+} from '../../../../packages/core/src/shared/types';
+import type { CartoBackend } from '../../../../packages/core/src/backend/cartoBackend';
 
 export const registerIpc = (backend: CartoBackend): void => {
   ipcMain.handle('carto.connect', async (_event, params: ConnectParams) => {

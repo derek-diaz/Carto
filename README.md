@@ -1,8 +1,8 @@
 <div align="center">
-  <img src="src/shared/logo_app.png" alt="Carto logo" width="220" height="220" />
+  <img src="packages/core/src/shared/logo_app.png" alt="Carto logo" width="220" height="220" />
 
   <h1>Carto</h1>
-  <p><strong>Desktop Zenoh traffic inspector for Windows, macOS, and Linux</strong></p>
+  <p><strong>Web-first Zenoh traffic inspector with desktop builds for Windows, macOS, and Linux</strong></p>
   <p>Inspect, filter, decode, and publish Zenoh messages in real time.</p>
 
   <p>
@@ -19,7 +19,7 @@
   </p>
 </div>
 
-Carto is an open-source desktop app for Zenoh observability and debugging. It connects to a Zenoh router through the Remote API WebSocket endpoint, subscribes to key expressions, streams live traffic, and helps you inspect payloads quickly.
+Carto is an open-source, web-first app for Zenoh observability and debugging. It connects to a Zenoh router through the Remote API WebSocket endpoint, subscribes to key expressions, streams live traffic, and helps you inspect payloads quickly. Desktop packages are still produced for Windows, macOS, and Linux.
 
 The name "Carto" comes from "cartografo" (Spanish for mapmaker).
 
@@ -29,8 +29,10 @@ The name "Carto" comes from "cartografo" (Spanish for mapmaker).
 - [Screenshots](#screenshots)
 - [Installation](#installation)
 - [Zenoh Router Requirements](#zenoh-router-requirements)
-- [Quick Start with Docker](#quick-start-with-docker)
+- [Run Carto in Docker](#run-carto-in-docker)
+- [Zenoh Router Docker](#zenoh-router-docker)
 - [Development](#development)
+- [Load Testing](#load-testing)
 - [Packaging](#packaging)
 - [Roadmap](#roadmap)
 - [Keywords](#keywords)
@@ -86,7 +88,57 @@ Useful links:
 - [zenoh-plugin-remote-api downloads](https://download.eclipse.org/zenoh/zenoh-plugin-remote-api/)
 - [Adding plugins and backends to the Zenoh container](https://zenoh.io/docs/getting-started/quick-test/#adding-plugins-and-backends-to-the-container)
 
-## Quick Start with Docker
+## Run Carto in Docker
+
+Pull the published image:
+
+```bash
+docker pull gigabit77/carto:latest
+```
+
+Build the web container:
+
+```bash
+docker build -t carto .
+```
+
+Run it:
+
+```bash
+docker run --rm -p 8080:8080 carto
+```
+
+Then open:
+
+```text
+http://localhost:8080
+```
+
+This is a single Linux container that serves the Vite React UI and the Carto backend from the same Node process. It works across Windows, macOS, and Linux hosts that can run Linux containers.
+
+If your Zenoh router is running on the same machine as Docker, you can use the normal local endpoint:
+
+```text
+ws://127.0.0.1:10000/
+```
+
+Carto rewrites loopback addresses inside the container to the Docker host automatically. Direct non-loopback IPs also work as long as they are reachable from the container network.
+
+## Docker Publishing
+
+Tagged releases publish a multi-arch Docker image to Docker Hub at `gigabit77/carto`.
+
+GitHub Actions expects this repository secret:
+
+- `DOCKERHUB_TOKEN`: Docker Hub access token for the `gigabit77` account
+
+When you push a tag like `v0.4.0`, the workflow publishes:
+
+- `gigabit77/carto:0.4.0`
+- `gigabit77/carto:0.4`
+- `gigabit77/carto:latest`
+
+## Zenoh Router Docker
 
 This repository includes a local Docker setup for Zenoh + Remote API:
 
@@ -107,18 +159,67 @@ See `docker/README.md` for Docker-specific details.
 
 Requirements:
 
-- Node.js 24+
+- Node.js 24+ for desktop builds
+- Node.js for the default web server runtime
+- Bun optional for experimentation
 
 Run locally:
 
 ```bash
 npm install
-npm run dev
+npm run dev:desktop
 ```
+
+Run the web frontend locally:
+
+```bash
+npm run build:web
+npm run dev:web
+```
+
+Run the web/server mode locally:
+
+```bash
+npm install
+npm run build:server
+npm run start:web
+```
+
+Experimental Bun server run:
+
+```bash
+bun install
+npm run start:web:bun
+```
+
+## Load Testing
+
+Carto includes a local Zenoh load publisher for reproducing large-payload issues.
+
+Default run:
+
+```bash
+npm run load:test -- --endpoint ws://127.0.0.1:10000/
+```
+
+That sends 100 messages to `carto/load-test` in bursts of 5, with payload sizes randomized between 600 KiB and 900 KiB.
+
+Example heavier run:
+
+```bash
+npm run load:test -- --endpoint ws://127.0.0.1:10000/ --count 200 --burst 10 --pause-ms 50 --min-kib 600 --max-kib 900
+```
+
+Useful flags:
+
+- `--keyexpr` to isolate the test stream
+- `--format json|text` to switch payload shape
+- `--count` to control total messages
+- `--burst` and `--pause-ms` to shape the send rate
 
 ## Packaging
 
-Build all supported targets locally:
+Build all supported desktop targets locally:
 
 ```bash
 npm run dist
@@ -131,6 +232,8 @@ npm run dist:mac
 npm run dist:win
 npm run dist:linux
 ```
+
+Desktop release automation remains in GitHub Actions via Electron/electron-builder while the app runtime moves toward a web-first architecture.
 
 ## Keywords
 
