@@ -1,7 +1,8 @@
 import { app, BrowserWindow, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createCartoBackend } from './backend/cartoBackend';
+import { createCartoBackend } from '../../../../packages/core/src/backend/cartoBackend';
+import { createElectronEventSink } from './electronEventSink';
 import { registerIpc } from './ipc';
 
 let mainWindow: BrowserWindow | null = null;
@@ -13,11 +14,9 @@ const resolveWindowIcon = (): string | undefined => {
   const cwd = process.cwd();
   const appPath = app.getAppPath();
   const candidates = [
-    path.join(cwd, 'src', 'shared', 'logo.png'),
+    path.join(cwd, 'packages', 'core', 'src', 'shared', 'logo.png'),
     path.join(cwd, 'out', 'renderer', 'assets', 'logo.png'),
-    path.join(appPath, 'src', 'shared', 'logo.png'),
-    path.join(appPath, 'shared', 'logo.png'),
-    path.join(__dirname, '../shared/logo.png'),
+    path.join(appPath, 'packages', 'core', 'src', 'shared', 'logo.png'),
     path.join(process.resourcesPath, 'logo.png')
   ];
   return candidates.find((candidate) => fs.existsSync(candidate));
@@ -62,7 +61,7 @@ const createWindow = (): void => {
     lastRendererReloadAt = now;
     if (!mainWindow || mainWindow.isDestroyed()) return;
     mainWindow.webContents.reload();
-    backend.setWebContents(mainWindow.webContents);
+    backend.setEventSink(createElectronEventSink(mainWindow.webContents));
   });
 
   if (devUrl) {
@@ -71,7 +70,7 @@ const createWindow = (): void => {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 
-  backend.setWebContents(mainWindow.webContents);
+  backend.setEventSink(createElectronEventSink(mainWindow.webContents));
 };
 
 app.whenReady().then(() => {

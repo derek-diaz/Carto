@@ -12,7 +12,9 @@ import type {
 import type { LogInput, ToastInput } from '../utils/notifications';
 import { IconChevronDown, IconLinkOff, IconPlug, IconSave, IconTrash } from './Icons';
 
-const DEFAULT_ENDPOINT = 'ws://127.0.0.1:10000/';
+const DEFAULT_ENDPOINT = (() => {
+  return 'ws://127.0.0.1:10000/';
+})();
 const PROFILE_STORAGE_KEY = 'carto.connectionProfiles';
 const SETTINGS_EVENT = 'carto.settings.imported';
 const DEFAULT_HEALTH_INTERVAL_MS = '5000';
@@ -55,15 +57,18 @@ const parseProfiles = (raw: string | null): ConnectionProfile[] => {
         const record = entry as Record<string, unknown>;
         if (typeof record.id !== 'string' || typeof record.name !== 'string') return null;
         if (typeof record.endpoint !== 'string') return null;
-        return {
+        const profile: ConnectionProfile = {
           id: record.id,
           name: record.name,
           endpoint: record.endpoint,
-          configJson: typeof record.configJson === 'string' ? record.configJson : undefined,
           updatedAt: typeof record.updatedAt === 'number' ? record.updatedAt : Date.now()
-        } satisfies ConnectionProfile;
+        };
+        if (typeof record.configJson === 'string') {
+          profile.configJson = record.configJson;
+        }
+        return profile;
       })
-      .filter((entry): entry is ConnectionProfile => Boolean(entry));
+      .filter((entry): entry is ConnectionProfile => entry !== null);
   } catch {
     return [];
   }
@@ -479,7 +484,7 @@ const ConnectPanel = ({
               setEndpoint(event.target.value);
               setLocalError(null);
             }}
-            placeholder="ws://127.0.0.1:10000/"
+            placeholder={DEFAULT_ENDPOINT}
             disabled={busy || status.connected}
           />
         </label>
@@ -781,7 +786,7 @@ const ConnectPanel = ({
                 setConfigJson(event.target.value);
                 setLocalError(null);
               }}
-              placeholder='{"locator": "ws://127.0.0.1:10000/", "messageResponseTimeoutMs": 5000}'
+              placeholder={`{"locator": "${DEFAULT_ENDPOINT}", "messageResponseTimeoutMs": 5000}`}
               rows={4}
               disabled={busy}
             />

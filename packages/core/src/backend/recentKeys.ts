@@ -1,4 +1,4 @@
-import type { RecentKeyStats } from '../../shared/types';
+import type { RecentKeyStats } from '../shared/types';
 
 export type RecentKeysIndex = {
   update: (key: string, sizeBytes: number, ts: number) => void;

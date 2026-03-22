@@ -13,8 +13,9 @@
     "allowSyntheticDefaultImports": true,
     "baseUrl": ".",
     "paths": {
-      "@shared/*": ["src/shared/*"]
+      "@shared/*": ["packages/core/src/shared/*"],
+      "@core/*": ["packages/core/src/*"]
     }
   },
-  "include": ["src", "electron.vite.config.ts", "vitest.config.ts"]
+  "include": ["apps", "packages", "electron.vite.config.ts", "vitest.config.ts", "vite.config.mts"]
 }
