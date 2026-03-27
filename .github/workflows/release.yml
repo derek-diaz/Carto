@@ -54,14 +54,14 @@ jobs:
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: gigabit77
+          username: tabierto
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: gigabit77/carto
+          images: tabierto/carto
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}

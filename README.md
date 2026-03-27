@@ -93,13 +93,13 @@ Useful links:
 Pull the published image:
 
 ```bash
-docker pull gigabit77/carto:latest
+docker pull taboerto/carto:latest
 ```
 
 Run it:
 
 ```bash
-docker run --rm -p 8080:8080 carto
+docker run --rm -p 8080:8080 tabierto/carto
 ```
 
 Then open:
