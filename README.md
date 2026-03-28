@@ -93,7 +93,7 @@ Useful links:
 Pull the published image:
 
 ```bash
-docker pull taboerto/carto:latest
+docker pull tabierto/carto:latest
 ```
 
 Run it:
