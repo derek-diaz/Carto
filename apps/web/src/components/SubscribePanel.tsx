@@ -86,6 +86,7 @@ const SubscribePanel = ({
   protoTypeLabels,
   onClose
 }: SubscribePanelProps) => {
+  const isModal = Boolean(onClose);
   const [keyexpr, setKeyexpr] = useState(DEFAULT_KEYEXPR);
   const [keyexprHistory, setKeyexprHistory] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -276,7 +277,14 @@ const SubscribePanel = ({
   return (
     <section className="panel panel--subscribe">
       <div className="panel_header">
-        <h2>Subscribe</h2>
+        <div className="subscribe_heading">
+          <h2>{isModal ? 'New subscription' : 'Subscribe'}</h2>
+          <p>
+            {isModal
+              ? 'Start another stream with the same compact monitor workflow.'
+              : 'Create a new subscription and choose how payloads should decode.'}
+          </p>
+        </div>
         <div className="panel_actions">
           <span className="badge badge--idle">{subscriptions.length} active</span>{onClose ? (
             <button
@@ -293,146 +301,151 @@ const SubscribePanel = ({
           ) : null}
         </div>
       </div>
-      <label className="field field--combo">
-        <span>Key expression</span>
-        <div className="combo" ref={comboRef}>
-          <input
-            ref={inputRef}
-            className="combo_input"
-            type="text"
-            value={keyexpr}
-            onChange={(event) => setKeyexpr(event.target.value)}
-            onFocus={() => {
-              if (suppressHistoryOpenRef.current) {
-                suppressHistoryOpenRef.current = false;
-                return;
-              }
-              if (keyexprHistory.length > 0) setShowHistory(true);
-            }}
-            placeholder="demo/**"
-            disabled={!connected || busy}
-          />
-          <button
-            className="combo_toggle"
-            type="button"
-            onClick={() => setShowHistory((prev) => !prev)}
-            aria-label="Toggle key expression history"
-            disabled={!connected || busy}
-          >
-            <span className="combo_icon" aria-hidden="true">
-              <IconChevronDown />
-            </span>
-          </button>
-          {showHistory ? (
-            <div className="combo_menu" role="listbox">
-              {keyexprHistory.length === 0 ? (
-                <div className="combo_empty">No saved keyexprs yet.</div>
-              ) : (
-                keyexprHistory.map((entry) => (
-                  <div key={entry} className="combo_option">
+      <div className="subscribe_form">
+        <label className="field field--combo">
+          <span>Key expression</span>
+          <div className="combo" ref={comboRef}>
+            <input
+              ref={inputRef}
+              className="combo_input"
+              type="text"
+              value={keyexpr}
+              onChange={(event) => setKeyexpr(event.target.value)}
+              onFocus={() => {
+                if (suppressHistoryOpenRef.current) {
+                  suppressHistoryOpenRef.current = false;
+                  return;
+                }
+                if (keyexprHistory.length > 0) setShowHistory(true);
+              }}
+              placeholder="demo/**"
+              disabled={!connected || busy}
+            />
+            <button
+              className="combo_toggle"
+              type="button"
+              onClick={() => setShowHistory((prev) => !prev)}
+              aria-label="Toggle key expression history"
+              disabled={!connected || busy}
+            >
+              <span className="combo_icon" aria-hidden="true">
+                <IconChevronDown />
+              </span>
+            </button>
+            {showHistory ? (
+              <div className="combo_menu" role="listbox">
+                {keyexprHistory.length === 0 ? (
+                  <div className="combo_empty">No saved keyexprs yet.</div>
+                ) : (
+                  keyexprHistory.map((entry) => (
+                    <div key={entry} className="combo_option">
+                      <button
+                        className="combo_option_button"
+                        type="button"
+                        role="option"
+                        onClick={() => {
+                          setKeyexpr(entry);
+                          setShowHistory(false);
+                          suppressHistoryOpenRef.current = true;
+                          inputRef.current?.focus();
+                        }}
+                      >
+                        {entry}
+                      </button>
+                      <button
+                        className="icon-button icon-button--compact icon-button--ghost combo_option_remove"
+                        type="button"
+                        title={`Remove ${entry}`}
+                        aria-label={`Remove ${entry} from history`}
+                        onClick={() => handleRemoveHistory(entry)}
+                      >
+                        <span className="icon-button_icon" aria-hidden="true">
+                          <IconClose />
+                        </span>
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : null}
+          </div>
+        </label>
+        <div className="helper">Pick a recent keyexpr from the dropdown or type a new one.</div>
+
+        <label className="field">
+          <span>Decoder</span>
+          <div className="segmented">
+            <button
+              className={`segmented_button ${decoderMode === 'raw' ? 'segmented_button--active' : ''}`}
+              type="button"
+              onClick={() => {
+                setDecoderMode('raw');
+              }}
+            >
+              Raw
+            </button>
+            <button
+              className={`segmented_button ${decoderMode === 'protobuf' ? 'segmented_button--active' : ''}`}
+              type="button"
+              onClick={() => setDecoderMode('protobuf')}
+              disabled={protoTypes.length === 0}
+            >
+              Protobuf
+            </button>
+          </div>
+          {protoTypes.length === 0 ? (
+            <span className="helper">Add a .proto schema in Settings to enable decoding.</span>
+          ) : null}
+        </label>
+
+        {decoderMode === 'protobuf' ? (
+          <label className="field">
+            <span>Protobuf types</span>
+            <select
+              value={protoTypePicker}
+              onChange={(event) => {
+                const value = event.target.value;
+                setProtoTypePicker('');
+                if (!value) return;
+                setProtoTypeIds((prev) => (prev.includes(value) ? prev : [...prev, value]));
+              }}
+            >
+              <option value="">Select a message type to add</option>
+              {availableProtoTypes.map((type) => (
+                <option key={type.id} value={type.id}>
+                  {type.label}
+                </option>
+              ))}
+            </select>
+            {protoTypeIds.length > 0 ? (
+              <div className="proto_types">
+                {protoTypeIds.map((typeId) => (
+                  <span key={typeId} className="proto_type">
+                    {protoTypeLabels[typeId] ?? 'Unknown'}
                     <button
-                    className="combo_option_button"
-                    type="button"
-                    role="option"
-                    onClick={() => {
-                      setKeyexpr(entry);
-                      setShowHistory(false);
-                      suppressHistoryOpenRef.current = true;
-                      inputRef.current?.focus();
-                    }}
-                  >
-                      {entry}
-                    </button>
-                    <button
-                      className="icon-button icon-button--compact icon-button--ghost combo_option_remove"
+                      className="proto_type-remove"
                       type="button"
-                      title={`Remove ${entry}`}
-                      aria-label={`Remove ${entry} from history`}
-                      onClick={() => handleRemoveHistory(entry)}
+                      aria-label={`Remove ${protoTypeLabels[typeId] ?? typeId}`}
+                      onClick={() =>
+                        setProtoTypeIds((prev) => prev.filter((entry) => entry !== typeId))
+                      }
                     >
                       <span className="icon-button_icon" aria-hidden="true">
                         <IconClose />
                       </span>
                     </button>
-                  </div>
-                ))
-              )}
-            </div>
-          ) : null}
-        </div>
-      </label>
-      <div className="helper">Pick a recent keyexpr from the dropdown or type a new one.</div>
-      <label className="field">
-        <span>Decoder</span>
-        <div className="segmented">
-          <button
-            className={`segmented_button ${decoderMode === 'raw' ? 'segmented_button--active' : ''}`}
-            type="button"
-            onClick={() => {
-              setDecoderMode('raw');
-            }}
-          >
-            Raw
-          </button>
-          <button
-            className={`segmented_button ${decoderMode === 'protobuf' ? 'segmented_button--active' : ''}`}
-            type="button"
-            onClick={() => setDecoderMode('protobuf')}
-            disabled={protoTypes.length === 0}
-          >
-            Protobuf
-          </button>
-        </div>
-        {protoTypes.length === 0 ? (
-          <span className="helper">Add a .proto schema to enable decoding.</span>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            <span className="helper">Select one or more types. Remove any using the X.</span>
+          </label>
         ) : null}
-      </label>
-      {decoderMode === 'protobuf' ? (
-        <label className="field">
-          <span>Protobuf types</span>
-          <select
-            value={protoTypePicker}
-            onChange={(event) => {
-              const value = event.target.value;
-              setProtoTypePicker('');
-              if (!value) return;
-              setProtoTypeIds((prev) => (prev.includes(value) ? prev : [...prev, value]));
-            }}
-          >
-            <option value="">Select a message type to add</option>
-            {availableProtoTypes.map((type) => (
-              <option key={type.id} value={type.id}>
-                {type.label}
-              </option>
-            ))}
-          </select>
-          {protoTypeIds.length > 0 ? (
-            <div className="proto_types">
-              {protoTypeIds.map((typeId) => (
-                <span key={typeId} className="proto_type">
-                  {protoTypeLabels[typeId] ?? 'Unknown'}
-                  <button
-                    className="proto_type-remove"
-                    type="button"
-                    aria-label={`Remove ${protoTypeLabels[typeId] ?? typeId}`}
-                    onClick={() =>
-                      setProtoTypeIds((prev) => prev.filter((entry) => entry !== typeId))
-                    }
-                  >
-                    <span className="icon-button_icon" aria-hidden="true">
-                      <IconClose />
-                    </span>
-                  </button>
-                </span>
-              ))}
-            </div>
-          ) : null}
-          <span className="helper">Select one or more types. Remove any using the X.</span>
-        </label>
-      ) : null}
-      <div className="panel_actions">
+      </div>
+
+      <div className="panel_actions subscribe_actions">
         <button
-          className="button"
+          className={`button ${isModal ? 'subscribe_submit' : ''}`}
           onClick={handleSubscribe}
           disabled={
             !connected ||
@@ -442,82 +455,88 @@ const SubscribePanel = ({
             (decoderMode === 'protobuf' && protoTypeIds.length === 0)
           }
         >
-          <span className="button_icon" aria-hidden="true">
-            <IconPlus />
-          </span>{' '}Start
+          {isModal ? 'Subscribe' : (
+            <>
+              <span className="button_icon" aria-hidden="true">
+                <IconPlus />
+              </span>{' '}Start
+            </>
+          )}
         </button>
       </div>
       {displayError ? <div className="panel_error">{displayError}</div> : null}
 
-      <div className="list">
-        {subscriptions.length === 0 ? (
-          <div className="empty">No active subscriptions yet.</div>
-        ) : (
-          subscriptions.map((sub) => (
-            <div
-              key={sub.id}
-              className={`list_row ${selectedSubId === sub.id ? 'list_row--active' : ''}`}
-              onClick={() => onSelect(sub.id)}
-            >
-              <div className="list_meta">
-                <div className="list_title">{sub.keyexpr}</div>
-                <div className="list_subtitle">
-                  <span className="list_decoder">
-                    {decoderLabel(decoderById[sub.id], protoTypeLabels)}
-                  </span>
+      {!isModal ? (
+        <div className="list">
+          {subscriptions.length === 0 ? (
+            <div className="empty">No active subscriptions yet.</div>
+          ) : (
+            subscriptions.map((sub) => (
+              <div
+                key={sub.id}
+                className={`list_row ${selectedSubId === sub.id ? 'list_row--active' : ''}`}
+                onClick={() => onSelect(sub.id)}
+              >
+                <div className="list_meta">
+                  <div className="list_title">{sub.keyexpr}</div>
+                  <div className="list_subtitle">
+                    <span className="list_decoder">
+                      {decoderLabel(decoderById[sub.id], protoTypeLabels)}
+                    </span>
+                  </div>
+                </div>
+                <div className="list_actions">
+                  <button
+                    className="button button--ghost"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleAction(
+                        () => onPause(sub.id, !sub.paused),
+                        'subscribe',
+                        `Pause toggle for ${sub.keyexpr}`
+                      );
+                    }}
+                  >
+                    <span className="button_icon" aria-hidden="true">
+                      {sub.paused ? <IconPlay /> : <IconPause />}
+                    </span>{' '}{sub.paused ? 'Resume' : 'Pause'}
+                  </button>
+                  <button
+                    className="button button--ghost"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleAction(
+                        () => onClear(sub.id),
+                        'subscribe',
+                        `Clear buffer for ${sub.keyexpr}`
+                      );
+                    }}
+                  >
+                    <span className="button_icon" aria-hidden="true">
+                      <IconTrash />
+                    </span>{' '}Clear
+                  </button>
+                  <button
+                    className="button button--danger"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleAction(
+                        () => onUnsubscribe(sub.id),
+                        'subscribe',
+                        `Unsubscribe ${sub.keyexpr}`
+                      );
+                    }}
+                  >
+                    <span className="button_icon" aria-hidden="true">
+                      <IconStop />
+                    </span>{' '}Stop
+                  </button>
                 </div>
               </div>
-              <div className="list_actions">
-                <button
-                  className="button button--ghost"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    handleAction(
-                      () => onPause(sub.id, !sub.paused),
-                      'subscribe',
-                      `Pause toggle for ${sub.keyexpr}`
-                    );
-                  }}
-                >
-                  <span className="button_icon" aria-hidden="true">
-                    {sub.paused ? <IconPlay /> : <IconPause />}
-                  </span>{' '}{sub.paused ? 'Resume' : 'Pause'}
-                </button>
-                <button
-                  className="button button--ghost"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    handleAction(
-                      () => onClear(sub.id),
-                      'subscribe',
-                      `Clear buffer for ${sub.keyexpr}`
-                    );
-                  }}
-                >
-                  <span className="button_icon" aria-hidden="true">
-                    <IconTrash />
-                  </span>{' '}Clear
-                </button>
-                <button
-                  className="button button--danger"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    handleAction(
-                      () => onUnsubscribe(sub.id),
-                      'subscribe',
-                      `Unsubscribe ${sub.keyexpr}`
-                    );
-                  }}
-                >
-                  <span className="button_icon" aria-hidden="true">
-                    <IconStop />
-                  </span>{' '}Stop
-                </button>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
+            ))
+          )}
+        </div>
+      ) : null}
     </section>
   );
 };
