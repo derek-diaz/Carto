@@ -7,7 +7,6 @@ import AboutDialog from './components/AboutDialog';
 import ConnectionView from './components/ConnectionView';
 import LogsView from './components/LogsView';
 import MonitorView from './components/MonitorView';
-import MessageDrawer from './components/MessageDrawer';
 import PublishView from './components/PublishView';
 import SettingsView from './components/SettingsView';
 import ToastStack from './components/ToastStack';
@@ -880,9 +879,7 @@ const App = () => {
 
   const viewDescription = useMemo(() => {
     if (view === 'monitor') {
-      return selectedSub
-        ? `Streaming ${selectedSub.keyexpr}`
-        : 'Pick a subscription to start streaming.';
+      return '';
     }
     if (view === 'publish') {
       if (publishSupport === 'supported') {
@@ -1200,7 +1197,6 @@ const App = () => {
                 selectedRecentKeys={selectedRecentKeys}
                 recentKeysFilter={recentKeysFilter}
                 setRecentKeysFilter={setRecentKeysFilter}
-                streamTitle={streamTitle}
                 monitorTab={monitorTab}
                 setMonitorTab={setMonitorTab}
                 showSubscribe={showSubscribe}
@@ -1210,6 +1206,12 @@ const App = () => {
                 onPause={setPaused}
                 onClear={clearBuffer}
                 onSelectMessage={handleSelectMessage}
+                selectedMessage={selectedMessage}
+                protoResult={protoResult}
+                onCloseInspector={() => {
+                  selectedMessageRequestRef.current += 1;
+                  setSelectedMessage(null);
+                }}
                 onLog={addLog}
                 onToast={addToast}
                 protoTypes={protoTypeOptions}
@@ -1269,15 +1271,6 @@ const App = () => {
           </div>
         </div>
       </div>
-
-      <MessageDrawer
-        message={selectedMessage}
-        protoResult={protoResult}
-        onClose={() => {
-          selectedMessageRequestRef.current += 1;
-          setSelectedMessage(null);
-        }}
-      />
       <AboutDialog
         open={showAbout}
         appName={appInfo.build?.productName ?? appInfo.name ?? 'Carto'}

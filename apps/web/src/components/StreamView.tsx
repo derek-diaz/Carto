@@ -6,17 +6,17 @@ import { AutoSizer } from 'react-virtualized-auto-sizer';
 import type { CartoMessage } from '@shared/types';
 import { formatBytes, formatTime } from '../utils/format';
 import { highlightJson } from '../utils/jsonSyntax';
-import { IconClose, IconFollow, IconHash, IconHighlighter, IconLatest, IconSearch } from './Icons';
+import { IconClose, IconFollow, IconLatest, IconSearch } from './Icons';
 import type { DecoderConfig } from '../utils/proto';
 
-const ROW_HEIGHT = 56;
+const ROW_HEIGHT = 46;
 const MAX_PROTO_PREVIEW_IN_FLIGHT = 2;
 const PROTO_PREVIEW_PENDING_TEXT = '[protobuf decoding…]';
 const PROTO_PREVIEW_UNAVAILABLE_TEXT = '[protobuf unavailable]';
 
 export type StreamViewProps = {
-  title: string;
   messages: CartoMessage[];
+  selectedMessageId?: string | null;
   onSelectMessage: (msg: CartoMessage) => void;
   decoder?: DecoderConfig;
   decodeProtobuf?: (
@@ -33,25 +33,24 @@ export type StreamViewProps = {
 
 type RowData = {
   messages: CartoMessage[];
+  selectedMessageId?: string | null;
   onSelect: (msg: CartoMessage) => void;
-  keyFilter: string;
-  contentFilter: string;
+  searchQuery: string;
   highlightMatches: boolean;
   decodedPreviewById: Record<string, string>;
   decoderActive: boolean;
 };
 
 const StreamView = ({
-  title,
   messages,
+  selectedMessageId,
   onSelectMessage,
   decoder,
   resolveProtobufPreview
 }: StreamViewProps) => {
   const listRef = useRef<ListImperativeAPI | null>(null);
   const [followLatest, setFollowLatest] = useState(true);
-  const [keyFilter, setKeyFilter] = useState('');
-  const [contentFilter, setContentFilter] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [highlightMatches, setHighlightMatches] = useState(true);
   const [decodedPreviewById, setDecodedPreviewById] = useState<Record<string, string>>({});
   const decodeQueueRef = useRef<CartoMessage[]>([]);
@@ -63,29 +62,22 @@ const StreamView = ({
   const canResolveProtobufPreview =
     Boolean(resolveProtobufPreview) && Boolean(decoder && decoder.kind !== 'raw');
 
-  const normalizedKeyFilter = keyFilter.trim().toLowerCase();
-  const normalizedContentFilter = contentFilter.trim().toLowerCase();
-  const filtersActive = Boolean(normalizedKeyFilter || normalizedContentFilter);
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  const filtersActive = Boolean(normalizedSearchQuery);
 
   const filteredMessages = useMemo(() => {
     if (!filtersActive) return messages;
     return messages.filter((msg) => {
-      if (normalizedKeyFilter && !msg.key.toLowerCase().includes(normalizedKeyFilter)) {
-        return false;
+      if (msg.key.toLowerCase().includes(normalizedSearchQuery)) {
+        return true;
       }
-      if (normalizedContentFilter) {
-        const payload = getSearchText(msg, decodedPreviewById[msg.id], canResolveProtobufPreview);
-        if (!payload.toLowerCase().includes(normalizedContentFilter)) {
-          return false;
-        }
-      }
-      return true;
+      const payload = getSearchText(msg, decodedPreviewById[msg.id], canResolveProtobufPreview);
+      return payload.toLowerCase().includes(normalizedSearchQuery);
     });
   }, [
     filtersActive,
     messages,
-    normalizedContentFilter,
-    normalizedKeyFilter,
+    normalizedSearchQuery,
     decodedPreviewById,
     canResolveProtobufPreview
   ]);
@@ -206,7 +198,32 @@ const StreamView = ({
   return (
     <section className="panel panel--stream">
       <div className="panel_header">
-        <h2>{title}</h2>
+        <label className="stream_search">
+          <div className="input-group input-group--filter">
+            <span className="input-group_icon" aria-hidden="true">
+              <IconSearch />
+            </span>
+            <input
+              type="text"
+              placeholder="Filter by key or content..."
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              aria-label="Filter by key or content"
+            />
+            {searchQuery ? (
+              <button
+                className="icon-button icon-button--compact icon-button--ghost"
+                onClick={() => setSearchQuery('')}
+                type="button"
+                aria-label="Clear filter"
+              >
+                <span className="icon-button_icon" aria-hidden="true">
+                  <IconClose />
+                </span>
+              </button>
+            ) : null}
+          </div>
+        </label>
         <div className="panel_actions">
           <button
             className={`button button--ghost button--compact ${
@@ -235,125 +252,47 @@ const StreamView = ({
           <span className="badge badge--idle">{countLabel}</span>
         </div>
       </div>
-      <div className="panel_toolbar stream_filters">
-        <div className="stream_filter-grid">
-          <label className="stream_filter">
-            <span className="stream_filter-label">Key</span>
-            <div className="input-group input-group--filter">
-              <span className="input-group_icon" aria-hidden="true">
-                <IconHash />
-              </span>
-              <input
-                type="text"
-                placeholder="Key contains…"
-                value={keyFilter}
-                onChange={(event) => setKeyFilter(event.target.value)}
-                aria-label="Filter by key"
-              />
-              {keyFilter ? (
-                <button
-                  className="icon-button icon-button--compact icon-button--ghost"
-                  onClick={() => setKeyFilter('')}
-                  type="button"
-                  aria-label="Clear key filter"
-                >
-                  <span className="icon-button_icon" aria-hidden="true">
-                    <IconClose />
-                  </span>
-                </button>
-              ) : null}
-            </div>
-          </label>
-          <label className="stream_filter">
-            <span className="stream_filter-label">Content</span>
-            <div className="input-group input-group--filter">
-              <span className="input-group_icon" aria-hidden="true">
-                <IconSearch />
-              </span>
-              <input
-                type="text"
-                placeholder="Payload contains…"
-                value={contentFilter}
-                onChange={(event) => setContentFilter(event.target.value)}
-                aria-label="Filter by payload content"
-              />
-              {contentFilter ? (
-                <button
-                  className="icon-button icon-button--compact icon-button--ghost"
-                  onClick={() => setContentFilter('')}
-                  type="button"
-                  aria-label="Clear content filter"
-                >
-                  <span className="icon-button_icon" aria-hidden="true">
-                    <IconClose />
-                  </span>
-                </button>
-              ) : null}
-            </div>
-          </label>
-        </div>
-        <div className="stream_filter-actions">
-          <button
-            className={`button button--ghost button--compact ${
-              highlightMatches ? 'button--active' : ''
-            }`}
-            onClick={() => setHighlightMatches((prev) => !prev)}
-            type="button"
-            disabled={!filtersActive}
-          >
-            <span className="button_icon" aria-hidden="true">
-              <IconHighlighter />
-            </span>{' '}
-            Highlight
-          </button>
-          <button
-            className="button button--ghost button--compact"
-            onClick={() => {
-              setKeyFilter('');
-              setContentFilter('');
-            }}
-            type="button"
-            disabled={!filtersActive}
-          >
-            <span className="button_icon" aria-hidden="true">
-              <IconClose />
-            </span>{' '}
-            Clear
-          </button>
-        </div>
-      </div>
       <div className="stream">
+        <div className="stream_head">
+          <div>Timestamp</div>
+          <div>Key</div>
+          <div>Content snippet</div>
+          <div>Encoding</div>
+          <div>Size</div>
+        </div>
         {filteredMessages.length === 0 ? (
           <div className="empty">
             {messages.length === 0 ? 'Waiting for data...' : 'No matches for current filters.'}
           </div>
         ) : (
-          <AutoSizer
-            renderProp={({ height, width }) => {
-              if (!height || !width) return null;
-              return (
-                <List
-                  listRef={listRef}
-                  rowCount={filteredMessages.length}
-                  rowHeight={ROW_HEIGHT}
-                  rowComponent={Row}
-                  rowProps={
-                    {
-                      messages: filteredMessages,
-                      onSelect: onSelectMessage,
-                      keyFilter: normalizedKeyFilter,
-                      contentFilter: normalizedContentFilter,
-                      highlightMatches,
-                      decodedPreviewById,
-                      decoderActive: canResolveProtobufPreview
-                    } satisfies RowData
-                  }
-                  onScroll={handleScroll}
-                  style={{ height, width }}
-                />
-              );
-            }}
-          />
+          <div className="stream_body">
+            <AutoSizer
+              renderProp={({ height, width }) => {
+                if (!height || !width) return null;
+                return (
+                  <List
+                    listRef={listRef}
+                    rowCount={filteredMessages.length}
+                    rowHeight={ROW_HEIGHT}
+                    rowComponent={Row}
+                    rowProps={
+                      {
+                        messages: filteredMessages,
+                        selectedMessageId,
+                        onSelect: onSelectMessage,
+                        searchQuery: normalizedSearchQuery,
+                        highlightMatches,
+                        decodedPreviewById,
+                        decoderActive: canResolveProtobufPreview
+                      } satisfies RowData
+                    }
+                    onScroll={handleScroll}
+                    style={{ height, width }}
+                  />
+                );
+              }}
+            />
+          </div>
         )}
       </div>
     </section>
@@ -365,9 +304,9 @@ const Row = ({
   style,
   ariaAttributes,
   messages,
+  selectedMessageId,
   onSelect,
-  keyFilter,
-  contentFilter,
+  searchQuery,
   highlightMatches,
   decodedPreviewById,
   decoderActive
@@ -375,27 +314,26 @@ const Row = ({
   const rowAria = ariaAttributes;
   const msg = messages[index];
   const preview = getPreviewText(msg, decodedPreviewById[msg.id], decoderActive);
-  const keyNode = highlightText(msg.key, keyFilter, highlightMatches);
+  const keyNode = highlightText(msg.key, searchQuery, highlightMatches);
   const payloadNode = getPayloadNode(
     msg.id,
     preview,
-    contentFilter,
+    searchQuery,
     highlightMatches,
     decodedPreviewById[msg.id]
   );
   return (
     <button
       type="button"
-      className="stream_row"
+      className={`stream_row ${selectedMessageId === msg.id ? 'stream_row--active' : ''}`}
       style={style}
       onClick={() => onSelect(msg)}
       {...rowAria}
     >
-      <div className="stream_meta">
-        <div className="stream_time">{formatTime(msg.ts)}</div>
-        <div className="stream_key">{keyNode}</div>
-      </div>
+      <div className="stream_time">{formatTime(msg.ts)}</div>
+      <div className="stream_key">{keyNode}</div>
       <div className="stream_payload">{payloadNode}</div>
+      <div className="stream_encoding">{msg.encoding}</div>
       <div className="stream_size">{formatBytes(msg.sizeBytes)}</div>
     </button>
   );

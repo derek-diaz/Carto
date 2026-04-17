@@ -9,6 +9,8 @@ type ProtoPanelProps = {
   onRemoveSchema: (id: string) => void;
   onLog: (entry: LogInput) => void;
   onToast: (toast: ToastInput) => void;
+  className?: string;
+  showCountBadge?: boolean;
 };
 
 const MAX_PREVIEW_LINES = 6;
@@ -18,7 +20,9 @@ const ProtoPanel = ({
   onAddSchema,
   onRemoveSchema,
   onLog,
-  onToast
+  onToast,
+  className,
+  showCountBadge = true
 }: ProtoPanelProps) => {
   const [schemaName, setSchemaName] = useState('');
   const [schemaSource, setSchemaSource] = useState('');
@@ -78,10 +82,10 @@ const ProtoPanel = ({
   };
 
   return (
-    <section className="panel">
+    <section className={`panel ${className ?? ''}`.trim()}>
       <div className="panel_header">
         <h2>Protobuf</h2>
-        <span className="badge badge--idle">{schemas.length} schemas</span>
+        {showCountBadge ? <span className="badge badge--idle">{schemas.length} schemas</span> : null}
       </div>
 
       <div

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PublishEncoding } from '@shared/types';
 import type { LogInput, ToastInput } from '../utils/notifications';
 import type { ProtoTypeOption } from '../utils/proto';
-import { IconChevronDown, IconClose, IconPublish } from './Icons';
+import { IconChevronDown, IconClose, IconCopy, IconPublish, IconTrash } from './Icons';
 
 export const DEFAULT_PUBLISH_KEYEXPR = 'demo/publish';
 export const DEFAULT_PUBLISH_JSON = '{\n  "message": "hello from Carto"\n}';
@@ -293,192 +293,265 @@ const PublishPanel = ({
     [draft.protoTypeId, protoTypes]
   );
 
+  const payloadLengthLabel = `${draft.payload.length} chars`;
+  const encodingLabel = draft.encoding === 'protobuf' ? 'protobuf' : draft.encoding;
+
+  const handleClearPayload = () => {
+    onDraftChange({ ...draft, payload: '' });
+  };
+
+  const handleCopyPayload = async () => {
+    if (!('clipboard' in navigator)) {
+      onToast({ type: 'warn', message: 'Clipboard is not available in this environment.' });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(draft.payload);
+      onToast({ type: 'ok', message: 'Payload copied' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to copy payload.';
+      onToast({ type: 'error', message: 'Copy failed', detail: message });
+    }
+  };
+
   return (
-    <section className="panel panel--publish">
-      <div className="panel_header">
-        <h2>Publish</h2>
-        <span className={`badge ${connected ? 'badge--ok' : 'badge--idle'}`}>
-          {connected ? 'Ready' : 'Offline'}
-        </span>
-      </div>
-      <label className="field field--combo">
-        <span>Key expression</span>
-        <div className="combo" ref={comboRef}>
-          <input
-            ref={inputRef}
-            className="combo_input"
-            type="text"
-            value={draft.keyexpr}
-            onChange={(event) => onDraftChange({ ...draft, keyexpr: event.target.value })}
-            onFocus={() => {
-              if (suppressHistoryOpenRef.current) {
-                suppressHistoryOpenRef.current = false;
-                return;
-              }
-              if (keyexprHistory.length > 0) setShowHistory(true);
-            }}
-            placeholder="demo/publish"
-            disabled={!connected || busy}
-          />
-          <button
-            className="combo_toggle"
-            type="button"
-            onClick={() => setShowHistory((prev) => !prev)}
-            aria-label="Toggle key expression history"
-            disabled={!connected || busy}
-          >
-            <span className="combo_icon" aria-hidden="true">
-              <IconChevronDown />
-            </span>
-          </button>
-          {showHistory ? (
-            <div className="combo_menu" role="listbox">
-              {keyexprHistory.length === 0 ? (
-                <div className="combo_empty">No saved keyexprs yet.</div>
-              ) : (
-                keyexprHistory.map((entry) => (
-                  <div key={entry} className="combo_option">
-                    <button
-                      className="combo_option_button"
-                      type="button"
-                      role="option"
-                      onClick={() => {
-                        applyHistorySelection(entry);
-                        setShowHistory(false);
-                        suppressHistoryOpenRef.current = true;
-                        inputRef.current?.focus();
-                      }}
-                    >
-                      {entry}
-                    </button>
-                    <button
-                      className="icon-button icon-button--compact icon-button--ghost combo_option_remove"
-                      type="button"
-                      title={`Remove ${entry}`}
-                      aria-label={`Remove ${entry} from history`}
-                      onClick={() => handleRemoveHistory(entry)}
-                    >
-                      <span className="icon-button_icon" aria-hidden="true">
-                        <IconClose />
-                      </span>
-                    </button>
-                  </div>
-                ))
-              )}
+    <section className="panel panel--publish publish_panel">
+      <div className="publish_panel-grid">
+        <div className="publish_panel-key">
+          <label className="field field--combo publish_field">
+            <span>Target key expression</span>
+            <div className="combo" ref={comboRef}>
+              <input
+                ref={inputRef}
+                className="combo_input publish_key_input"
+                type="text"
+                value={draft.keyexpr}
+                onChange={(event) => onDraftChange({ ...draft, keyexpr: event.target.value })}
+                onFocus={() => {
+                  if (suppressHistoryOpenRef.current) {
+                    suppressHistoryOpenRef.current = false;
+                    return;
+                  }
+                  if (keyexprHistory.length > 0) setShowHistory(true);
+                }}
+                placeholder="demo/publish"
+                disabled={!connected || busy}
+              />
+              <button
+                className="combo_toggle"
+                type="button"
+                onClick={() => setShowHistory((prev) => !prev)}
+                aria-label="Toggle key expression history"
+                disabled={!connected || busy}
+              >
+                <span className="combo_icon" aria-hidden="true">
+                  <IconChevronDown />
+                </span>
+              </button>
+              {showHistory ? (
+                <div className="combo_menu" role="listbox">
+                  {keyexprHistory.length === 0 ? (
+                    <div className="combo_empty">No saved keyexprs yet.</div>
+                  ) : (
+                    keyexprHistory.map((entry) => (
+                      <div key={entry} className="combo_option">
+                        <button
+                          className="combo_option_button"
+                          type="button"
+                          role="option"
+                          onClick={() => {
+                            applyHistorySelection(entry);
+                            setShowHistory(false);
+                            suppressHistoryOpenRef.current = true;
+                            inputRef.current?.focus();
+                          }}
+                        >
+                          {entry}
+                        </button>
+                        <button
+                          className="icon-button icon-button--compact icon-button--ghost combo_option_remove"
+                          type="button"
+                          title={`Remove ${entry}`}
+                          aria-label={`Remove ${entry} from history`}
+                          onClick={() => handleRemoveHistory(entry)}
+                        >
+                          <span className="icon-button_icon" aria-hidden="true">
+                            <IconClose />
+                          </span>
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </label>
+
+          {connected && publishSupport === 'unsupported' ? (
+            <div className="notice notice--info-warning publish_notice">
+              Publishing is not advertised by the current driver. The request may still fail.
             </div>
           ) : null}
         </div>
-      </label>
-      <div className="field">
-        <span>Encoding</span>
-        <div className="segmented">
-          <button
-            className={`segmented_button ${draft.encoding === 'json' ? 'segmented_button--active' : ''}`}
-            onClick={() => {
-              const next: PublishDraft = { ...draft, encoding: 'json' };
-              if (!draft.payload.trim()) next.payload = DEFAULT_PUBLISH_JSON;
-              onDraftChange(next);
-            }}
-            type="button"
-            disabled={!connected || busy}
-          >
-            JSON
-          </button>
-          <button
-            className={`segmented_button ${draft.encoding === 'text' ? 'segmented_button--active' : ''}`}
-            onClick={() => onDraftChange({ ...draft, encoding: 'text' })}
-            type="button"
-            disabled={!connected || busy}
-          >
-            Text
-          </button>
-          <button
-            className={`segmented_button ${draft.encoding === 'base64' ? 'segmented_button--active' : ''}`}
-            onClick={() => onDraftChange({ ...draft, encoding: 'base64' })}
-            type="button"
-            disabled={!connected || busy}
-          >
-            Base64
-          </button>
-          <button
-            className={`segmented_button ${draft.encoding === 'protobuf' ? 'segmented_button--active' : ''}`}
-            onClick={() => {
-              const nextTypeId = draft.protoTypeId ?? protoTypes[0]?.id;
-              const next: PublishDraft = {
-                ...draft,
-                encoding: 'protobuf',
-                protoTypeId: nextTypeId
-              };
-              if (!draft.payload.trim()) next.payload = DEFAULT_PUBLISH_JSON;
-              onDraftChange(next);
-            }}
-            type="button"
-            disabled={!connected || busy || protoTypes.length === 0}
-          >
-            Protobuf
-          </button>
+
+        <div className="publish_panel-columns">
+          <div className="publish_options">
+            <div className="publish_block">
+              <div className="publish_encoding">
+                <span className="monitor_eyebrow">Encoding</span>
+                <div className="segmented publish_segmented">
+                  <button
+                    className={`segmented_button ${draft.encoding === 'json' ? 'segmented_button--active' : ''}`}
+                    onClick={() => {
+                      const next: PublishDraft = { ...draft, encoding: 'json' };
+                      if (!draft.payload.trim()) next.payload = DEFAULT_PUBLISH_JSON;
+                      onDraftChange(next);
+                    }}
+                    type="button"
+                    disabled={!connected || busy}
+                  >
+                    JSON
+                  </button>
+                  <button
+                    className={`segmented_button ${draft.encoding === 'text' ? 'segmented_button--active' : ''}`}
+                    onClick={() => onDraftChange({ ...draft, encoding: 'text' })}
+                    type="button"
+                    disabled={!connected || busy}
+                  >
+                    Text
+                  </button>
+                  <button
+                    className={`segmented_button ${draft.encoding === 'base64' ? 'segmented_button--active' : ''}`}
+                    onClick={() => onDraftChange({ ...draft, encoding: 'base64' })}
+                    type="button"
+                    disabled={!connected || busy}
+                  >
+                    Base64
+                  </button>
+                  <button
+                    className={`segmented_button ${draft.encoding === 'protobuf' ? 'segmented_button--active' : ''}`}
+                    onClick={() => {
+                      const nextTypeId = draft.protoTypeId ?? protoTypes[0]?.id;
+                      const next: PublishDraft = {
+                        ...draft,
+                        encoding: 'protobuf',
+                        protoTypeId: nextTypeId
+                      };
+                      if (!draft.payload.trim()) next.payload = DEFAULT_PUBLISH_JSON;
+                      onDraftChange(next);
+                    }}
+                    type="button"
+                    disabled={!connected || busy || protoTypes.length === 0}
+                  >
+                    Protobuf
+                  </button>
+                </div>
+                <span className="helper publish_encoding-helper">{renderHelper()}</span>
+              </div>
+
+              {draft.encoding === 'protobuf' ? (
+                <label className="field publish_field">
+                  <span>Protobuf type</span>
+                  <select
+                    value={draft.protoTypeId ?? ''}
+                    onChange={(event) =>
+                      onDraftChange({ ...draft, protoTypeId: event.target.value || undefined })
+                    }
+                    disabled={!connected || busy || protoTypes.length === 0}
+                  >
+                    <option value="">Select a message type</option>
+                    {protoTypes.map((type) => (
+                      <option key={type.id} value={type.id}>
+                        {type.label}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedProtoType ? (
+                    <span className="helper">Encoding as {selectedProtoType.name}.</span>
+                  ) : null}
+                </label>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="publish_editor">
+            <div className="publish_block publish_block--editor">
+              <div className="publish_editor-header">
+                <div>
+                  <span className="monitor_eyebrow">Payload editor</span>
+                </div>
+                <div className="publish_editor-actions">
+                  <button
+                    className="icon-button icon-button--ghost"
+                    onClick={handleClearPayload}
+                    type="button"
+                    disabled={!connected || busy || !draft.payload}
+                    title="Clear payload"
+                    aria-label="Clear payload"
+                  >
+                    <span className="icon-button_icon" aria-hidden="true">
+                      <IconTrash />
+                    </span>
+                  </button>
+                  <button
+                    className="icon-button icon-button--ghost"
+                    onClick={() => {
+                      void handleCopyPayload();
+                    }}
+                    type="button"
+                    disabled={!draft.payload}
+                    title="Copy payload"
+                    aria-label="Copy payload"
+                  >
+                    <span className="icon-button_icon" aria-hidden="true">
+                      <IconCopy />
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <label className="field publish_field publish_editor-field">
+                <textarea
+                  className="publish_editor-textarea"
+                  value={draft.payload}
+                  onChange={(event) => onDraftChange({ ...draft, payload: event.target.value })}
+                  rows={10}
+                  placeholder={
+                    draft.encoding === 'base64'
+                      ? 'aGVsbG8='
+                      : draft.encoding === 'protobuf'
+                        ? '{ "id": "abc123" }'
+                        : 'message'
+                  }
+                  disabled={!connected || busy}
+                />
+              </label>
+
+              <div className="publish_editor-footer">
+                <div className="publish_editor-meta">
+                  <span className="publish_meta-pill">{encodingLabel}</span>
+                  <span className="publish_meta-pill">{payloadLengthLabel}</span>
+                </div>
+                <button
+                  className="button publish_send"
+                  onClick={handlePublish}
+                  disabled={
+                    !connected ||
+                    busy ||
+                    !draft.keyexpr.trim() ||
+                    (draft.encoding === 'protobuf' && !draft.protoTypeId)
+                  }
+                >
+                  <span className="button_icon" aria-hidden="true">
+                    <IconPublish />
+                  </span>{' '}
+                  Send message
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
-        <span className="helper">{renderHelper()}</span>
       </div>
-      {draft.encoding === 'protobuf' ? (
-        <label className="field">
-          <span>Protobuf type</span>
-          <select
-            value={draft.protoTypeId ?? ''}
-            onChange={(event) =>
-              onDraftChange({ ...draft, protoTypeId: event.target.value || undefined })
-            }
-            disabled={!connected || busy || protoTypes.length === 0}
-          >
-            <option value="">Select a message type</option>
-            {protoTypes.map((type) => (
-              <option key={type.id} value={type.id}>
-                {type.label}
-              </option>
-            ))}
-          </select>
-          {selectedProtoType ? (
-            <span className="helper">Encoding as {selectedProtoType.name}.</span>
-          ) : null}
-        </label>
-      ) : null}
-      <label className="field">
-        <span>Payload</span>
-        <textarea
-          value={draft.payload}
-          onChange={(event) => onDraftChange({ ...draft, payload: event.target.value })}
-          rows={6}
-          placeholder={
-            draft.encoding === 'base64'
-              ? 'aGVsbG8='
-              : draft.encoding === 'protobuf'
-                ? '{ "id": "abc123" }'
-                : 'message'
-          }
-          disabled={!connected || busy}
-        />
-      </label>
-      <div className="panel_actions">
-        <button
-          className="button"
-          onClick={handlePublish}
-          disabled={
-            !connected ||
-            busy ||
-            !draft.keyexpr.trim() ||
-            (draft.encoding === 'protobuf' && !draft.protoTypeId)
-          }
-        >
-          <span className="button_icon" aria-hidden="true">
-            <IconPublish />
-          </span>{' '}Send message
-        </button>
-      </div>
-      {connected && publishSupport === 'unsupported' ? (
-        <div className="panel_error">
-          Publishing is not advertised by the current driver. The request may fail.
-        </div>
-      ) : null}
     </section>
   );
 };

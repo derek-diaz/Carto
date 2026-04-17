@@ -241,173 +241,186 @@ const SettingsView = ({
   };
 
   return (
-    <div className="app_page app_page--wide">
-      <div className="settings_stack">
-        <section className="panel panel--settings">
-          <div className="panel_header">
-            <h2>Defaults</h2>
-          </div>
-          <label className="field">
-            <span>Ring buffer size</span>
-            <input
-              type="number"
-              min={minRingBuffer}
-              max={maxRingBuffer}
-              value={bufferDraft}
-              onChange={(event) => handleChange(event.target.value)}
-              onBlur={(event) => commitBufferSize(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  commitBufferSize(bufferDraft);
-                  event.currentTarget.blur();
-                }
-              }}
+    <div className="app_content app_content--single settings_shell">
+      <main className="settings_workspace">
+        <section className="settings_stage">
+          <div className="settings_stage-body">
+            <div className="settings_stage-main">
+              <section className="settings_block">
+                <div className="settings_block-head">
+                  <h2>Defaults</h2>
+                </div>
+
+                <label className="field settings_field">
+                  <span>Ring buffer size</span>
+                  <input
+                    type="number"
+                    min={minRingBuffer}
+                    max={maxRingBuffer}
+                    value={bufferDraft}
+                    onChange={(event) => handleChange(event.target.value)}
+                    onBlur={(event) => commitBufferSize(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        commitBufferSize(bufferDraft);
+                        event.currentTarget.blur();
+                      }
+                    }}
+                  />
+                </label>
+                <span className="helper">
+                  Applies to new subscriptions only. Existing streams keep their current buffer.
+                </span>
+                {error ? <div className="notice notice--error">{error}</div> : null}
+              </section>
+
+              <section className="settings_block">
+                <div className="settings_block-head">
+                  <h2>History</h2>
+                </div>
+
+                <div className="settings_history">
+                  <div className="settings_group">
+                    <div className="settings_group-header">
+                      <div>
+                        <div className="settings_group-title">Subscribe history</div>
+                        <div className="helper">Shown in the subscription picker.</div>
+                      </div>
+                      <button
+                        className="button button--ghost button--compact"
+                        type="button"
+                        onClick={handleClearSubscribe}
+                        disabled={subscribeHistory.length === 0}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                    {subscribeHistory.length === 0 ? (
+                      <div className="empty">No saved keyexprs yet.</div>
+                    ) : (
+                      <div className="history_list">
+                        {subscribeHistory.map((entry) => (
+                          <div key={entry} className="history_row">
+                            <span className="history_label">{entry}</span>
+                            <button
+                              className="icon-button icon-button--compact icon-button--ghost"
+                              type="button"
+                              title={`Remove ${entry}`}
+                              aria-label={`Remove ${entry} from subscribe history`}
+                              onClick={() => handleRemoveSubscribe(entry)}
+                            >
+                              <span className="icon-button_icon" aria-hidden="true">
+                                <IconClose />
+                              </span>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="settings_group">
+                    <div className="settings_group-header">
+                      <div>
+                        <div className="settings_group-title">Publish history</div>
+                        <div className="helper">Shown in the publisher key picker.</div>
+                      </div>
+                      <button
+                        className="button button--ghost button--compact"
+                        type="button"
+                        onClick={handleClearPublish}
+                        disabled={publishHistory.length === 0}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                    {publishHistory.length === 0 ? (
+                      <div className="empty">No saved keyexprs yet.</div>
+                    ) : (
+                      <div className="history_list">
+                        {publishHistory.map((entry) => (
+                          <div key={entry} className="history_row">
+                            <span className="history_label">{entry}</span>
+                            <button
+                              className="icon-button icon-button--compact icon-button--ghost"
+                              type="button"
+                              title={`Remove ${entry}`}
+                              aria-label={`Remove ${entry} from publish history`}
+                              onClick={() => handleRemovePublish(entry)}
+                            >
+                              <span className="icon-button_icon" aria-hidden="true">
+                                <IconClose />
+                              </span>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              <section className="settings_block">
+                <div className="settings_block-head">
+                  <h2>Import / Export</h2>
+                </div>
+
+                <div className="settings_io">
+                  <label className="field field--inline settings_toggle">
+                    <input
+                      type="checkbox"
+                      checked={mergeImport}
+                      onChange={(event) => setMergeImport(event.target.checked)}
+                    />
+                    <span>Merge with existing settings</span>
+                  </label>
+                  <div className="settings_row">
+                    <div>
+                      <div className="settings_group-title">Export settings</div>
+                      <div className="helper">Share protobufs, histories, and connection profiles.</div>
+                    </div>
+                    <button className="button button--ghost button--compact" type="button" onClick={handleExport}>
+                      Export
+                    </button>
+                  </div>
+                  <div className="settings_row">
+                    <div>
+                      <div className="settings_group-title">Import settings</div>
+                      <div className="helper">
+                        {mergeImport
+                          ? 'Adds entries and keeps your local values.'
+                          : 'Replaces local settings with the imported file.'}
+                      </div>
+                    </div>
+                    <label className="button button--ghost button--compact">
+                      Import
+                      <input
+                        type="file"
+                        accept="application/json,.json"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0] ?? null;
+                          handleImportFile(file).catch(() => {});
+                          event.currentTarget.value = '';
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <ProtoPanel
+              className="settings_proto"
+              schemas={schemas}
+              onAddSchema={onAddSchema}
+              onRemoveSchema={onRemoveSchema}
+              onLog={onLog}
+              onToast={onToast}
+              showCountBadge={false}
             />
-          </label>
-          <span className="helper">Applies to new subscriptions only.</span>
-          {error ? <div className="panel_error">{error}</div> : null}
-        </section>
-
-        <section className="panel panel--settings">
-          <div className="panel_header">
-            <h2>History</h2>
-          </div>
-          <div className="settings_history">
-            <div className="settings_group">
-              <div className="settings_group-header">
-                <div>
-                  <div className="settings_group-title">Subscribe history</div>
-                  <div className="helper">Shown in the Subscribe dropdown.</div>
-                </div>
-                <button
-                  className="button button--ghost button--compact"
-                  type="button"
-                  onClick={handleClearSubscribe}
-                  disabled={subscribeHistory.length === 0}
-                >
-                  Clear
-                </button>
-              </div>
-              {subscribeHistory.length === 0 ? (
-                <div className="empty">No saved keyexprs yet.</div>
-              ) : (
-                <div className="history_list">
-                  {subscribeHistory.map((entry) => (
-                    <div key={entry} className="history_row">
-                      <span className="history_label">{entry}</span>
-                      <button
-                        className="icon-button icon-button--compact icon-button--ghost"
-                        type="button"
-                        title={`Remove ${entry}`}
-                        aria-label={`Remove ${entry} from subscribe history`}
-                        onClick={() => handleRemoveSubscribe(entry)}
-                      >
-                        <span className="icon-button_icon" aria-hidden="true">
-                          <IconClose />
-                        </span>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="settings_group">
-              <div className="settings_group-header">
-                <div>
-                  <div className="settings_group-title">Publish history</div>
-                  <div className="helper">Shown in the Publish dropdown.</div>
-                </div>
-                <button
-                  className="button button--ghost button--compact"
-                  type="button"
-                  onClick={handleClearPublish}
-                  disabled={publishHistory.length === 0}
-                >
-                  Clear
-                </button>
-              </div>
-              {publishHistory.length === 0 ? (
-                <div className="empty">No saved keyexprs yet.</div>
-              ) : (
-                <div className="history_list">
-                  {publishHistory.map((entry) => (
-                    <div key={entry} className="history_row">
-                      <span className="history_label">{entry}</span>
-                      <button
-                        className="icon-button icon-button--compact icon-button--ghost"
-                        type="button"
-                        title={`Remove ${entry}`}
-                        aria-label={`Remove ${entry} from publish history`}
-                        onClick={() => handleRemovePublish(entry)}
-                      >
-                        <span className="icon-button_icon" aria-hidden="true">
-                          <IconClose />
-                        </span>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
         </section>
-
-        <section className="panel panel--settings">
-          <div className="panel_header">
-            <h2>Import / Export</h2>
-          </div>
-          <div className="settings_io">
-            <label className="field field--inline settings_toggle">
-              <input
-                type="checkbox"
-                checked={mergeImport}
-                onChange={(event) => setMergeImport(event.target.checked)}
-              />
-              <span>Merge with existing settings</span>
-            </label>
-            <div className="settings_row">
-              <div>
-                <div className="settings_group-title">Export settings</div>
-                <div className="helper">Share protobufs, histories, and profiles.</div>
-              </div>
-              <button className="button button--ghost button--compact" type="button" onClick={handleExport}>
-                Export
-              </button>
-            </div>
-            <div className="settings_row">
-              <div>
-                <div className="settings_group-title">Import settings</div>
-                <div className="helper">
-                  {mergeImport
-                    ? 'Adds entries and keeps your local values.'
-                    : 'Replaces local settings with the imported file.'}
-                </div>
-              </div>
-              <label className="button button--ghost button--compact">
-                Import
-                <input
-                  type="file"
-                  accept="application/json,.json"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0] ?? null;
-                    handleImportFile(file).catch(() => {});
-                    event.currentTarget.value = '';
-                  }}
-                />
-              </label>
-            </div>
-          </div>
-        </section>
-      </div>
-
-      <ProtoPanel
-        schemas={schemas}
-        onAddSchema={onAddSchema}
-        onRemoveSchema={onRemoveSchema}
-        onLog={onLog}
-        onToast={onToast}
-      />
+      </main>
     </div>
   );
 };

@@ -115,7 +115,7 @@ const AppHeader = ({
       <div className="app_header-left">
         <div className="app_title">
           <h1>{viewTitle}</h1>
-          <p>{viewDescription}</p>
+          {viewDescription ? <p>{viewDescription}</p> : null}
         </div>
       </div>
       <div className="app_header-right">
