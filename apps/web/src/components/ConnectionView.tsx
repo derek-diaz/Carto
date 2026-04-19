@@ -21,7 +21,7 @@ const ConnectionView = ({
   onLog,
   onToast
 }: ConnectionViewProps) => (
-  <div className="app_page app_page--full">
+  <div className="app_content app_content--single connection_shell">
     <ConnectPanel
       status={status}
       defaultEndpoint={defaultEndpoint}

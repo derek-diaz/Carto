@@ -275,18 +275,17 @@ const SubscribePanel = ({
   };
 
   return (
-    <section className="panel panel--subscribe">
+    <section className={`panel panel--subscribe ${isModal ? 'subscribe_panel--modal' : ''}`}>
       <div className="panel_header">
         <div className="subscribe_heading">
           <h2>{isModal ? 'New subscription' : 'Subscribe'}</h2>
-          <p>
-            {isModal
-              ? 'Start another stream with the same compact monitor workflow.'
-              : 'Create a new subscription and choose how payloads should decode.'}
-          </p>
+          {!isModal ? (
+            <p>Create a new subscription and choose how payloads should decode.</p>
+          ) : null}
         </div>
         <div className="panel_actions">
-          <span className="badge badge--idle">{subscriptions.length} active</span>{onClose ? (
+          {!isModal ? <span className="badge badge--idle">{subscriptions.length} active</span> : null}
+          {onClose ? (
             <button
               className="icon-button icon-button--compact icon-button--ghost"
               onClick={onClose}
@@ -302,7 +301,7 @@ const SubscribePanel = ({
         </div>
       </div>
       <div className="subscribe_form">
-        <label className="field field--combo">
+        <label className="field field--combo subscribe_field">
           <span>Key expression</span>
           <div className="combo" ref={comboRef}>
             <input
@@ -370,36 +369,42 @@ const SubscribePanel = ({
             ) : null}
           </div>
         </label>
-        <div className="helper">Pick a recent keyexpr from the dropdown or type a new one.</div>
+        {!isModal ? (
+          <div className="helper">Pick a recent keyexpr from the dropdown or type a new one.</div>
+        ) : null}
 
-        <label className="field">
+        <label className="field subscribe_field">
           <span>Decoder</span>
-          <div className="segmented">
+          <div className={`subscribe_decoder ${decoderMode === 'protobuf' ? 'subscribe_decoder--protobuf' : ''}`}>
             <button
-              className={`segmented_button ${decoderMode === 'raw' ? 'segmented_button--active' : ''}`}
+              className={`subscribe_decoder-option ${decoderMode === 'raw' ? 'subscribe_decoder-option--active' : ''}`}
               type="button"
               onClick={() => {
                 setDecoderMode('raw');
               }}
             >
-              Raw
+              <span className="subscribe_decoder-title">Raw</span>
+              <span className="subscribe_decoder-copy">Keep payloads as-is.</span>
             </button>
             <button
-              className={`segmented_button ${decoderMode === 'protobuf' ? 'segmented_button--active' : ''}`}
+              className={`subscribe_decoder-option ${decoderMode === 'protobuf' ? 'subscribe_decoder-option--active' : ''}`}
               type="button"
               onClick={() => setDecoderMode('protobuf')}
               disabled={protoTypes.length === 0}
             >
-              Protobuf
+              <span className="subscribe_decoder-title">Protobuf</span>
+              <span className="subscribe_decoder-copy">
+                Decode with one or more schema types.
+              </span>
             </button>
           </div>
           {protoTypes.length === 0 ? (
-            <span className="helper">Add a .proto schema in Settings to enable decoding.</span>
+            <span className="helper">Add a `.proto` schema in Settings to enable decoding.</span>
           ) : null}
         </label>
 
         {decoderMode === 'protobuf' ? (
-          <label className="field">
+          <label className="field subscribe_field">
             <span>Protobuf types</span>
             <select
               value={protoTypePicker}

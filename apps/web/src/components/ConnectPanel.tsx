@@ -468,13 +468,8 @@ const ConnectPanel = ({
   }, [configJson]);
 
   return (
-    <section className="panel panel--accent">
-      <div className="panel_header">
-        <h2>Connect</h2>
-        <span className={`badge ${badgeTone}`}>{healthInfo.label}</span>
-      </div>
-
-      <div className="connect_quick">
+    <section className="panel panel--accent connect_panel">
+      <div className="connect_quick connect_quick--hero">
         <label className="field">
           <span>Router endpoint</span>
           <input
@@ -488,12 +483,18 @@ const ConnectPanel = ({
             disabled={busy || status.connected}
           />
         </label>
-        <div className="connect_quick-row">
-          <label className="field">
-            <span>Mode</span>
-            <input type="text" value="client" disabled />
-          </label>
-          <label className="field">
+        <div className="connect_quick-row connect_quick-row--top">
+          <div className="connect_summary">
+            <div className="connect_summary-item">
+              <span className="monitor_eyebrow">Mode</span>
+              <strong>client</strong>
+            </div>
+            <div className="connect_summary-item">
+              <span className="monitor_eyebrow">Status</span>
+              <strong>{healthInfo.label}</strong>
+            </div>
+          </div>
+          <label className="field connect_health-field">
             <span>Health check (ms)</span>
             <input
               type="number"
@@ -504,9 +505,41 @@ const ConnectPanel = ({
               disabled={busy}
             />
           </label>
+          <div className="connect_actions">
+            <button
+              className="button button--ghost"
+              onClick={() => handleTestConnection()}
+              disabled={busy || testRunning}
+              type="button"
+            >
+              {testRunning ? 'Testing...' : 'Test connection'}
+            </button>
+            {status.connected ? (
+              <button className="button button--ghost" onClick={handleDisconnect} disabled={busy}>
+                <span className="button_icon" aria-hidden="true">
+                  <IconLinkOff />
+                </span>{' '}
+                Disconnect
+              </button>
+            ) : (
+              <button className="button connect_primary" onClick={handleConnect} disabled={busy || !endpoint.trim()}>
+                <span className="button_icon" aria-hidden="true">
+                  <IconPlug />
+                </span>{' '}
+                Connect
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
+      {healthInfo.detail ? (
+        <div className="notice notice--info notice--info-progress">{healthInfo.detail}</div>
+      ) : null}
+      {localError ? <div className="notice notice--error">{localError}</div> : null}
+      {status.error ? <div className="panel_error">{status.error}</div> : null}
+
+      <div className="connect_sections">
       <details className="disclosure">
         <summary className="disclosure_summary">
           <span className="disclosure_title">Profiles</span>{' '}
@@ -794,7 +827,7 @@ const ConnectPanel = ({
         </div>
       </details>
 
-      <details className="disclosure">
+      <details className="disclosure connect_diagnostics">
         <summary className="disclosure_summary">
           <span className="disclosure_title">Diagnostics</span>{' '}
           <span className="disclosure_meta">{testSummary ?? 'Not run'}</span>{' '}
@@ -803,27 +836,17 @@ const ConnectPanel = ({
           </span>
         </summary>
         <div className="disclosure_content">
-          <div className="connect_row">
-            <button
-              className="button button--ghost"
-              onClick={() => handleTestConnection()}
+          <label className="field">
+            <span>Timeout (ms)</span>
+            <input
+              type="number"
+              min={1000}
+              step={500}
+              value={testTimeout}
+              onChange={(event) => setTestTimeout(event.target.value)}
               disabled={busy || testRunning}
-              type="button"
-            >
-              {testRunning ? 'Testing...' : 'Test connection'}
-            </button>
-            <label className="field field--inline">
-              <span>Timeout (ms)</span>{' '}
-              <input
-                type="number"
-                min={1000}
-                step={500}
-                value={testTimeout}
-                onChange={(event) => setTestTimeout(event.target.value)}
-                disabled={busy || testRunning}
-              />
-            </label>
-          </div>
+            />
+          </label>
           {testResult?.ok && testResult.capabilities ? (
             <div className="diagnostics_block">
               <div className="diagnostics_row">
@@ -852,31 +875,7 @@ const ConnectPanel = ({
           ) : null}
         </div>
       </details>
-
-      <div className="panel_actions">
-        {status.connected ? (
-          <button className="button button--ghost" onClick={handleDisconnect} disabled={busy}>
-            <span className="button_icon" aria-hidden="true">
-              <IconLinkOff />
-            </span>{' '}Disconnect
-          </button>
-        ) : (
-          <button
-            className="button"
-            onClick={handleConnect}
-            disabled={busy || !endpoint.trim()}
-          >
-            <span className="button_icon" aria-hidden="true">
-              <IconPlug />
-            </span>{' '}Connect
-          </button>
-        )}
       </div>
-      {healthInfo.detail ? (
-        <div className="notice notice--info notice--info-progress">{healthInfo.detail}</div>
-      ) : null}
-      {localError ? <div className="notice notice--error">{localError}</div> : null}
-      {status.error ? <div className="panel_error">{status.error}</div> : null}
     </section>
   );
 };
