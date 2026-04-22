@@ -1,6 +1,6 @@
 {
   "name": "carto",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "description": "Carto is a web-first app for inspecting Zenoh traffic.",
   "author": "Derek Diaz <derek.diaz@proton.me>",
@@ -49,7 +49,7 @@
     "electron": "^41.2.1",
     "electron-builder": "^26.8.1",
     "electron-vite": "^5.0.0",
-    "eslint": "^10.2.1",
+    "eslint": "^9.10.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react": "^7.35.0",
     "eslint-plugin-react-hooks": "^7.1.1",
