@@ -6,9 +6,6 @@
   <p>Inspect, filter, decode, and publish Zenoh messages in real time.</p>
 
   <p>
-    <a href="https://github.com/derek-diaz/Carto/releases">
-      <img src="https://img.shields.io/github/v/release/derek-diaz/Carto?label=release" alt="Latest release" />
-    </a>
     <a href="LICENSE">
       <img src="https://img.shields.io/github/license/derek-diaz/Carto" alt="License" />
     </a>

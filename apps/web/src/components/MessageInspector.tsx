@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { KeyboardEventHandler, PointerEventHandler } from 'react';
 import type { CartoMessage } from '@shared/types';
 import { formatBytes, formatTime } from '../utils/format';
 import { formatJson, highlightJson } from '../utils/jsonSyntax';
@@ -16,6 +17,8 @@ type MessageInspectorProps = {
   subscriptionLabel?: string;
   variant?: 'side' | 'dock';
   onClose: () => void;
+  onResizeStart?: PointerEventHandler<HTMLButtonElement>;
+  onResizeKeyDown?: KeyboardEventHandler<HTMLButtonElement>;
 };
 
 type TabId = 'json' | 'text' | 'base64' | 'protobuf';
@@ -25,10 +28,12 @@ const MessageInspector = ({
   protoResult,
   subscriptionLabel,
   variant = 'side',
-  onClose
+  onClose,
+  onResizeStart,
+  onResizeKeyDown
 }: MessageInspectorProps) => {
   const [tab, setTab] = useState<TabId>('json');
-  const protobufJson = protoResult?.data !== undefined ? formatJson(protoResult.data) : '';
+  const protobufJson = protoResult?.data === undefined ? '' : formatJson(protoResult.data);
   const messageJson = formatJson(message?.json);
   const dockBadge =
     variant === 'dock'
@@ -57,6 +62,16 @@ const MessageInspector = ({
           variant === 'dock' ? 'monitor_inspector--dock' : ''
         }`}
       >
+        {variant === 'dock' ? (
+          <button
+            className="monitor_inspector-resizer"
+            onPointerDown={onResizeStart}
+            onKeyDown={onResizeKeyDown}
+            type="button"
+            aria-label="Resize inspector"
+            title="Resize inspector"
+          />
+        ) : null}
         <div className="monitor_inspector-empty">
           <span className="monitor_eyebrow">Inspector</span>
           <h3>Select a message</h3>
@@ -71,16 +86,31 @@ const MessageInspector = ({
 
   return (
     <aside className={`monitor_inspector ${variant === 'dock' ? 'monitor_inspector--dock' : ''}`}>
+      {variant === 'dock' ? (
+        <button
+          className="monitor_inspector-resizer"
+          onPointerDown={onResizeStart}
+          onKeyDown={onResizeKeyDown}
+          type="button"
+          aria-label="Resize inspector"
+          title="Resize inspector"
+        />
+      ) : null}
       <div className="monitor_inspector-header">
         <div className="monitor_inspector-title">
           <span className="monitor_eyebrow">
             {variant === 'dock' ? 'Payload inspector' : 'Inspector'}
           </span>
           <h3>{variant === 'dock' ? message.key : message.key}</h3>
-          <p>{subscriptionLabel ? `${subscriptionLabel} • ` : ''}{formatTime(message.ts)}</p>
+          <p>
+            {subscriptionLabel ? `${subscriptionLabel} • ` : ''}
+            {formatTime(message.ts)}
+          </p>
         </div>
         <div className="monitor_inspector-header-actions">
-          {dockBadge ? <span className="badge badge--ok monitor_inspector-badge">{dockBadge}</span> : null}
+          {dockBadge ? (
+            <span className="badge badge--ok monitor_inspector-badge">{dockBadge}</span>
+          ) : null}
           <button
             className="icon-button icon-button--ghost icon-button--compact"
             onClick={onClose}
@@ -95,7 +125,9 @@ const MessageInspector = ({
         </div>
       </div>
 
-      <div className={`monitor_inspector-layout ${variant === 'dock' ? 'monitor_inspector-layout--dock' : ''}`}>
+      <div
+        className={`monitor_inspector-layout ${variant === 'dock' ? 'monitor_inspector-layout--dock' : ''}`}
+      >
         <div className="monitor_inspector-main">
           <div className="monitor_inspector-tabs">
             {protoResult ? (
@@ -145,12 +177,12 @@ const MessageInspector = ({
               <div className="notice notice--info">Loading full payload…</div>
             ) : null}
             {tab === 'protobuf' && protoResult ? (
-              protoResult.data !== undefined ? (
-                <pre className="json_code">{highlightJson(protobufJson)}</pre>
-              ) : (
+              protoResult.data === undefined ? (
                 <div className="notice notice--error">
                   {protoResult.error ?? 'Unable to decode protobuf payload.'}
                 </div>
+              ) : (
+                <pre className="json_code">{highlightJson(protobufJson)}</pre>
               )
             ) : null}
             {tab === 'json' ? <pre className="json_code">{highlightJson(messageJson)}</pre> : null}
@@ -158,7 +190,9 @@ const MessageInspector = ({
               <pre>{message.payloadTruncated ? `${message.text ?? ''}\n...` : message.text}</pre>
             ) : null}
             {tab === 'base64' ? (
-              <pre>{message.payloadTruncated ? `${message.base64 ?? ''}\n...` : message.base64 ?? ''}</pre>
+              <pre>
+                {message.payloadTruncated ? `${message.base64 ?? ''}\n...` : (message.base64 ?? '')}
+              </pre>
             ) : null}
           </div>
         </div>

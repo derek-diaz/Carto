@@ -1,14 +1,10 @@
 import type { ConnectionHealth } from '@shared/types';
-import type { PublishDraft } from './PublishPanel';
 import type { Subscription } from '../store/useCarto';
 import {
-  IconClock,
   IconCopy,
-  IconHash,
   IconLinkOff,
   IconPause,
   IconPlay,
-  IconReplay,
   IconTrash
 } from './Icons';
 
@@ -32,13 +28,6 @@ type AppHeaderProps = {
   selectedSub?: Subscription;
   onTogglePause: () => Promise<void>;
   onClearBuffer: () => Promise<void>;
-  onUseKeyexpr: () => void;
-  useKeyexprLabel: string;
-  useKeyexprTitle: string;
-  canUseKeyexpr: boolean;
-  onLoadLastPublish: () => void;
-  lastPublish: PublishDraft | null;
-  onReplayLast: () => Promise<void>;
   actionNotice: ActionNotice | null;
   onDisconnect: () => Promise<void>;
 };
@@ -58,13 +47,6 @@ const AppHeader = ({
   selectedSub,
   onTogglePause,
   onClearBuffer,
-  onUseKeyexpr,
-  useKeyexprLabel,
-  useKeyexprTitle,
-  canUseKeyexpr,
-  onLoadLastPublish,
-  lastPublish,
-  onReplayLast,
   actionNotice,
   onDisconnect
 }: AppHeaderProps) => {
@@ -163,44 +145,6 @@ const AppHeader = ({
                 <span className="button_icon" aria-hidden="true">
                   <IconTrash />
                 </span>{' '}Clear buffer
-              </button>
-            </>
-          ) : null}
-          {view === 'publish' ? (
-            <>
-              <button
-                className="button button--ghost button--compact"
-                onClick={() => onUseKeyexpr()}
-                title={useKeyexprTitle}
-                type="button"
-                disabled={!canUseKeyexpr}
-              >
-                <span className="button_icon" aria-hidden="true">
-                  <IconHash />
-                </span>{' '}
-                {useKeyexprLabel}
-              </button>
-              <button
-                className="button button--ghost button--compact"
-                onClick={() => onLoadLastPublish()}
-                title="Load last publish"
-                type="button"
-                disabled={!lastPublish}
-              >
-                <span className="button_icon" aria-hidden="true">
-                  <IconClock />
-                </span>{' '}Load last
-              </button>
-              <button
-                className="button button--ghost button--compact"
-                onClick={() => onReplayLast().catch(() => {})}
-                title="Replay last publish (Ctrl/Cmd+Shift+R)"
-                type="button"
-                disabled={!lastPublish || !statusConnected}
-              >
-                <span className="button_icon" aria-hidden="true">
-                  <IconReplay />
-                </span>{' '}Replay last
               </button>
             </>
           ) : null}
