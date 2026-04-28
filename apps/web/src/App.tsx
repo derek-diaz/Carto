@@ -504,7 +504,6 @@ const App = () => {
     },
     [decodeProtobuf, getMessage, selectedDecoder, selectedSubId]
   );
-  const streamTitle = selectedSub ? `Stream - ${selectedSub.keyexpr}` : 'Stream';
   const activeKeys = recentKeys;
   const [view, setView] = useState<'monitor' | 'publish' | 'connection' | 'logs' | 'settings'>(
     status.connected ? 'monitor' : 'connection'
@@ -905,11 +904,6 @@ const App = () => {
   const endpointTitle = lastEndpoint || 'No endpoint yet';
   const recentKeyexpr = recentKeys[0]?.key;
   const selectedKeyexpr = selectedSub?.keyexpr;
-  const useKeyexprLabel = selectedKeyexpr ? 'Use stream key' : 'Use recent key';
-  const canUseKeyexpr = Boolean(selectedKeyexpr ?? recentKeyexpr);
-  const useKeyexprTitle = canUseKeyexpr
-    ? `${useKeyexprLabel}: ${selectedKeyexpr ?? recentKeyexpr ?? ''}`
-    : 'No keys available yet';
   const handleCopyEndpoint = useCallback(async () => {
     if (!lastEndpoint || !canCopyEndpoint) return;
     try {
@@ -1028,17 +1022,6 @@ const App = () => {
       addLog({ level: 'error', source: 'connection', message });
     }
   }, [addLog, addToast, disconnect]);
-
-  const handleUseKeyexpr = useCallback(() => {
-    const nextKeyexpr = selectedKeyexpr ?? recentKeyexpr;
-    if (!nextKeyexpr) return;
-    setPublishDraft((current) => ({ ...current, keyexpr: nextKeyexpr }));
-  }, [recentKeyexpr, selectedKeyexpr]);
-
-  const handleLoadLastPublish = useCallback(() => {
-    if (!lastPublish) return;
-    setPublishDraft({ ...lastPublish });
-  }, [lastPublish]);
 
   const handleReplayLast = useCallback(async () => {
     if (!lastPublish || !status.connected) return;
@@ -1175,13 +1158,6 @@ const App = () => {
             selectedSub={selectedSub}
             onTogglePause={handleTogglePause}
             onClearBuffer={handleClearBuffer}
-            onUseKeyexpr={handleUseKeyexpr}
-            useKeyexprLabel={useKeyexprLabel}
-            useKeyexprTitle={useKeyexprTitle}
-            canUseKeyexpr={canUseKeyexpr}
-            onLoadLastPublish={handleLoadLastPublish}
-            lastPublish={lastPublish}
-            onReplayLast={handleReplayLast}
             actionNotice={actionNotice}
             onDisconnect={handleDisconnect}
           />

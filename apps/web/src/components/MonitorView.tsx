@@ -1,4 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type {
+  CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent
+} from 'react';
 import type { CartoMessage, RecentKeyStats } from '@shared/types';
 import type { Subscription } from '../store/useCarto';
 import type { LogInput, ToastInput } from '../utils/notifications';
@@ -16,6 +21,35 @@ import {
 } from './Icons';
 import StreamView from './StreamView';
 import SubscribePanel from './SubscribePanel';
+
+const INSPECTOR_HEIGHT_STORAGE_KEY = 'carto.monitor.inspectorHeight';
+const DEFAULT_INSPECTOR_HEIGHT = 320;
+const MIN_INSPECTOR_HEIGHT = 220;
+const MAX_INSPECTOR_HEIGHT = 560;
+const MIN_STREAM_HEIGHT = 240;
+
+const clampInspectorHeight = (value: number, workspaceHeight?: number) => {
+  const viewportMax =
+    workspaceHeight && Number.isFinite(workspaceHeight)
+      ? Math.max(MIN_INSPECTOR_HEIGHT, workspaceHeight - MIN_STREAM_HEIGHT)
+      : MAX_INSPECTOR_HEIGHT;
+  return Math.min(Math.min(MAX_INSPECTOR_HEIGHT, viewportMax), Math.max(MIN_INSPECTOR_HEIGHT, value));
+};
+
+const readInspectorHeight = () => {
+  if (typeof globalThis === 'undefined' || !('localStorage' in globalThis)) {
+    return DEFAULT_INSPECTOR_HEIGHT;
+  }
+  const stored = Number(globalThis.localStorage.getItem(INSPECTOR_HEIGHT_STORAGE_KEY));
+  if (!Number.isFinite(stored)) return DEFAULT_INSPECTOR_HEIGHT;
+  return clampInspectorHeight(stored);
+};
+
+const persistInspectorHeight = (value: number) => {
+  if ('localStorage' in globalThis) {
+    globalThis.localStorage.setItem(INSPECTOR_HEIGHT_STORAGE_KEY, String(Math.round(value)));
+  }
+};
 
 type MonitorViewProps = {
   connected: boolean;
@@ -94,6 +128,14 @@ const MonitorView = ({
 }: MonitorViewProps) => {
   const selectedSubscription = subscriptions.find((sub) => sub.id === selectedSubId) ?? null;
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [inspectorHeight, setInspectorHeight] = useState(readInspectorHeight);
+  const workspaceRef = useRef<HTMLElement | null>(null);
+  const inspectorHeightRef = useRef(inspectorHeight);
+
+  useEffect(() => {
+    inspectorHeightRef.current = inspectorHeight;
+    workspaceRef.current?.style.setProperty('--monitor-inspector-height', `${inspectorHeight}px`);
+  }, [inspectorHeight]);
 
   useEffect(() => {
     if (selectedRecentKeys.length === 0) {
@@ -104,6 +146,65 @@ const MonitorView = ({
       setSelectedKey(selectedRecentKeys[0]?.key ?? null);
     }
   }, [selectedKey, selectedRecentKeys]);
+
+  const handleInspectorResizeStart = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (monitorTab !== 'stream') return;
+    event.preventDefault();
+    const workspace = workspaceRef.current;
+    if (!workspace) return;
+
+    const pointerId = event.pointerId;
+    event.currentTarget.setPointerCapture(pointerId);
+    const startY = event.clientY;
+    const startHeight = inspectorHeightRef.current;
+    const workspaceHeight = workspace.getBoundingClientRect().height;
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const nextHeight = clampInspectorHeight(
+        startHeight + startY - moveEvent.clientY,
+        workspaceHeight
+      );
+      inspectorHeightRef.current = nextHeight;
+      workspace.style.setProperty('--monitor-inspector-height', `${nextHeight}px`);
+    };
+
+    const handlePointerEnd = () => {
+      const nextHeight = inspectorHeightRef.current;
+      setInspectorHeight(nextHeight);
+      persistInspectorHeight(nextHeight);
+      globalThis.removeEventListener('pointermove', handlePointerMove);
+      globalThis.removeEventListener('pointerup', handlePointerEnd);
+      globalThis.removeEventListener('pointercancel', handlePointerEnd);
+    };
+
+    globalThis.addEventListener('pointermove', handlePointerMove);
+    globalThis.addEventListener('pointerup', handlePointerEnd, { once: true });
+    globalThis.addEventListener('pointercancel', handlePointerEnd, { once: true });
+  };
+
+  const handleInspectorResizeKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (monitorTab !== 'stream') return;
+    const workspaceHeight = workspaceRef.current?.getBoundingClientRect().height;
+    const step = event.shiftKey ? 48 : 24;
+    let nextHeight: number | null = null;
+
+    if (event.key === 'ArrowUp') {
+      nextHeight = inspectorHeightRef.current + step;
+    } else if (event.key === 'ArrowDown') {
+      nextHeight = inspectorHeightRef.current - step;
+    } else if (event.key === 'Home') {
+      nextHeight = MIN_INSPECTOR_HEIGHT;
+    } else if (event.key === 'End') {
+      nextHeight = MAX_INSPECTOR_HEIGHT;
+    }
+
+    if (nextHeight === null) return;
+    event.preventDefault();
+    const clampedHeight = clampInspectorHeight(nextHeight, workspaceHeight);
+    inspectorHeightRef.current = clampedHeight;
+    setInspectorHeight(clampedHeight);
+    persistInspectorHeight(clampedHeight);
+  };
 
   if (subscriptions.length === 0) {
     return (
@@ -129,7 +230,11 @@ const MonitorView = ({
 
   return (
     <div className="app_content app_content--single monitor_shell">
-      <main className="monitor_workspace">
+      <main
+        className="monitor_workspace"
+        ref={workspaceRef}
+        style={{ '--monitor-inspector-height': `${inspectorHeight}px` } as CSSProperties}
+      >
         <aside className="monitor_sidebar">
           <div className="monitor_sidebar-header">
             <div>
@@ -308,6 +413,8 @@ const MonitorView = ({
             subscriptionLabel={selectedSubscription?.keyexpr}
             variant="dock"
             onClose={onCloseInspector}
+            onResizeStart={handleInspectorResizeStart}
+            onResizeKeyDown={handleInspectorResizeKeyDown}
           />
         ) : null}
       </main>
