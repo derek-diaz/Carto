@@ -10,11 +10,13 @@ import type {
   ClearBufferParams,
   ConnectParams,
   ConnectionTestParams,
+  DeclareQueryableParams,
   GetMessageParams,
   GetRecentKeysParams,
   PauseParams,
   PublishParams,
   SubscribeParams,
+  UndeclareQueryableParams,
   UnsubscribeParams
 } from '../../../packages/core/src/shared/types';
 
@@ -143,6 +145,20 @@ const handleApiRequest = async (
         await backend.publish(body as PublishParams);
         respondJson(res, 200, { ok: true });
         return;
+      case '/api/declare-queryable': {
+        const queryableId = await backend.declareQueryable(body as DeclareQueryableParams);
+        respondJson(res, 200, { queryableId });
+        return;
+      }
+      case '/api/undeclare-queryable':
+        await backend.undeclareQueryable((body as UndeclareQueryableParams).queryableId);
+        respondJson(res, 200, { ok: true });
+        return;
+      case '/api/get-queryables': {
+        const queryables = backend.getQueryables();
+        respondJson(res, 200, { queryables });
+        return;
+      }
       default:
         respondJson(res, 404, { error: 'Not found.' });
     }

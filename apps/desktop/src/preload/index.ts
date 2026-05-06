@@ -16,6 +16,9 @@ const api: CartoApi = {
   getRecentKeys: (params) => ipcRenderer.invoke('carto.getRecentKeys', params ?? {}),
   clearBuffer: (params) => ipcRenderer.invoke('carto.clearBuffer', params),
   publish: (params) => ipcRenderer.invoke('carto.publish', params),
+  declareQueryable: (params) => ipcRenderer.invoke('carto.declareQueryable', params),
+  undeclareQueryable: (params) => ipcRenderer.invoke('carto.undeclareQueryable', params),
+  getQueryables: () => ipcRenderer.invoke('carto.getQueryables'),
   onMessage: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: CartoMessagePayload) => {
       callback(payload);

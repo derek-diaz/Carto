@@ -11,8 +11,10 @@ import type {
   ConnectionTestParams,
   ConnectionTestResult,
   ConnectParams,
+  DeclareQueryableParams,
   PublishEncoding,
   PublishParams,
+  QueryableInfo,
   RecentKeyStats,
   ReconnectConfig,
   TlsConfig
@@ -143,6 +145,18 @@ type SubscriptionState = {
   detailBytes: number;
 };
 
+type QueryableState = {
+  id: string;
+  keyexpr: string;
+  payload: string;
+  encoding: PublishEncoding;
+  bytes: Uint8Array;
+  encodingHint?: string;
+  complete: boolean;
+  replyKeyexpr?: string;
+  createdAt: number;
+};
+
 export type CartoBackend = {
   setEventSink: (eventSink: CartoEventSink | null) => void;
   getStatus: () => ConnectionStatus;
@@ -155,6 +169,9 @@ export type CartoBackend = {
   clearBuffer: (subscriptionId: string) => Promise<void>;
   getMessage: (subscriptionId: string, messageId: string) => Promise<CartoMessage | null>;
   publish: (params: PublishParams) => Promise<void>;
+  declareQueryable: (params: DeclareQueryableParams) => Promise<string>;
+  undeclareQueryable: (queryableId: string) => Promise<void>;
+  getQueryables: () => QueryableInfo[];
   getRecentKeys: (filter?: string, subscriptionId?: string) => RecentKeyStats[];
 };
 
@@ -162,6 +179,7 @@ export const createCartoBackend = (): CartoBackend => {
   let driver: ZenohDriver | null = null;
   let eventSink: CartoEventSink | null = null;
   const subscriptions = new Map<string, SubscriptionState>();
+  const queryables = new Map<string, QueryableState>();
   const recentKeys = createRecentKeysIndex();
   let capabilities: Capabilities | null = null;
   let connectParams: ConnectParams | null = null;
@@ -581,6 +599,21 @@ export const createCartoBackend = (): CartoBackend => {
     }
   };
 
+  const attachQueryable = async (state: QueryableState): Promise<void> => {
+    if (!driver) {
+      throw new Error('Not connected to Zenoh.');
+    }
+
+    await driver.declareQueryable({
+      queryableId: state.id,
+      keyexpr: state.keyexpr,
+      payload: state.bytes,
+      encoding: state.encodingHint,
+      complete: state.complete,
+      replyKeyexpr: state.replyKeyexpr
+    });
+  };
+
   const resubscribeAll = async (): Promise<void> => {
     if (!driver || subscriptions.size === 0) return;
     const states = [...subscriptions.values()];
@@ -588,6 +621,17 @@ export const createCartoBackend = (): CartoBackend => {
     results.forEach((result) => {
       if (result.status === 'rejected') {
         logDriverError('resubscribe', result.reason);
+      }
+    });
+  };
+
+  const redeclareQueryables = async (): Promise<void> => {
+    if (!driver || queryables.size === 0) return;
+    const states = [...queryables.values()];
+    const results = await Promise.allSettled(states.map((state) => attachQueryable(state)));
+    results.forEach((result) => {
+      if (result.status === 'rejected') {
+        logDriverError('redeclare-queryable', result.reason);
       }
     });
   };
@@ -707,6 +751,7 @@ export const createCartoBackend = (): CartoBackend => {
 
       startHealthCheck();
       await resubscribeAll();
+      await redeclareQueryables();
     } catch (error) {
       try {
         await driverInstance.disconnect();
@@ -782,6 +827,7 @@ export const createCartoBackend = (): CartoBackend => {
     reconnectAttempt = 0;
 
     subscriptions.clear();
+    queryables.clear();
     recentKeys.clear();
 
     setConnectionState(false, {
@@ -812,6 +858,7 @@ export const createCartoBackend = (): CartoBackend => {
 
     await disconnectDriver(true);
     subscriptions.clear();
+    queryables.clear();
     recentKeys.clear();
 
     await applyWsOptions(params.auth, params.tls);
@@ -945,6 +992,77 @@ export const createCartoBackend = (): CartoBackend => {
     await driver.publish({ keyexpr: trimmedKeyexpr, payload: bytes, encoding: encodingHint });
   };
 
+  const declareQueryable = async (params: DeclareQueryableParams): Promise<string> => {
+    if (!driver) {
+      throw new Error('Not connected to Zenoh.');
+    }
+
+    const trimmedKeyexpr = params.keyexpr.trim();
+    const keyexprError = getKeyexprError(trimmedKeyexpr);
+    if (keyexprError) {
+      throw new Error(keyexprError);
+    }
+
+    const replyKeyexpr = params.replyKeyexpr?.trim();
+    if (replyKeyexpr) {
+      const replyKeyexprError = getKeyexprError(replyKeyexpr);
+      if (replyKeyexprError) {
+        throw new Error(`Invalid reply key expression. ${replyKeyexprError}`);
+      }
+    }
+
+    const { bytes, encodingHint } = encodePublishPayload(params.payload, params.encoding);
+    const queryableId = randomUUID();
+    const state: QueryableState = {
+      id: queryableId,
+      keyexpr: trimmedKeyexpr,
+      payload: params.payload,
+      encoding: params.encoding,
+      bytes,
+      encodingHint,
+      complete: params.complete ?? false,
+      replyKeyexpr: replyKeyexpr || undefined,
+      createdAt: Date.now()
+    };
+    queryables.set(queryableId, state);
+
+    try {
+      await attachQueryable(state);
+    } catch (error) {
+      queryables.delete(queryableId);
+      throw error;
+    }
+
+    return queryableId;
+  };
+
+  const undeclareQueryable = async (queryableId: string): Promise<void> => {
+    if (!queryables.has(queryableId)) return;
+    try {
+      if (driver) {
+        await driver.undeclareQueryable(queryableId);
+      }
+    } catch (error) {
+      if (!isRemoteApiTimeout(error)) {
+        throw error;
+      }
+      logDriverError('undeclare-queryable', error);
+    } finally {
+      queryables.delete(queryableId);
+    }
+  };
+
+  const getQueryables = (): QueryableInfo[] =>
+    [...queryables.values()].map((state) => ({
+      id: state.id,
+      keyexpr: state.keyexpr,
+      payload: state.payload,
+      encoding: state.encoding,
+      complete: state.complete,
+      replyKeyexpr: state.replyKeyexpr,
+      createdAt: state.createdAt
+    }));
+
   const getRecentKeys = (filter?: string, subscriptionId?: string): RecentKeyStats[] => {
     if (subscriptionId) {
       const state = subscriptions.get(subscriptionId);
@@ -966,6 +1084,9 @@ export const createCartoBackend = (): CartoBackend => {
     clearBuffer,
     getMessage,
     publish,
+    declareQueryable,
+    undeclareQueryable,
+    getQueryables,
     getRecentKeys
   };
 };

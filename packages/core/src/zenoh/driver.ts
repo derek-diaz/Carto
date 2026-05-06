@@ -30,12 +30,23 @@ export type PublishOptions = {
   encoding?: string;
 };
 
+export type QueryableOptions = {
+  queryableId: string;
+  keyexpr: string;
+  payload: Uint8Array;
+  encoding?: string;
+  complete?: boolean;
+  replyKeyexpr?: string;
+};
+
 export interface ZenohDriver {
   connect(options: ConnectOptions): Promise<Capabilities>;
   disconnect(): Promise<void>;
   subscribe(options: SubscribeOptions): Promise<void>;
   unsubscribe(subscriptionId: string): Promise<void>;
   publish(options: PublishOptions): Promise<void>;
+  declareQueryable(options: QueryableOptions): Promise<void>;
+  undeclareQueryable(queryableId: string): Promise<void>;
   pause?(subscriptionId: string, paused: boolean): Promise<void>;
   healthCheck?(): Promise<void>;
 }

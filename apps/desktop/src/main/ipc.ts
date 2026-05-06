@@ -4,11 +4,13 @@ import type {
   ConnectParams,
   ConnectionTestParams,
   ConnectionTestResult,
+  DeclareQueryableParams,
   GetMessageParams,
   GetRecentKeysParams,
   PauseParams,
   PublishParams,
   SubscribeParams,
+  UndeclareQueryableParams,
   UnsubscribeParams
 } from '../../../../packages/core/src/shared/types';
 import type { CartoBackend } from '../../../../packages/core/src/backend/cartoBackend';
@@ -53,5 +55,17 @@ export const registerIpc = (backend: CartoBackend): void => {
 
   ipcMain.handle('carto.publish', async (_event, params: PublishParams) => {
     await backend.publish(params);
+  });
+
+  ipcMain.handle('carto.declareQueryable', async (_event, params: DeclareQueryableParams) => {
+    return backend.declareQueryable(params);
+  });
+
+  ipcMain.handle('carto.undeclareQueryable', async (_event, params: UndeclareQueryableParams) => {
+    await backend.undeclareQueryable(params.queryableId);
+  });
+
+  ipcMain.handle('carto.getQueryables', async () => {
+    return backend.getQueryables();
   });
 };

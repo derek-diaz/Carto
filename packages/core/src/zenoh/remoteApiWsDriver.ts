@@ -2,10 +2,20 @@ import { lookup } from 'node:dns/promises';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import type { Capabilities } from '../shared/types';
-import type { ConnectOptions, PublishOptions, SubscribeOptions, ZenohDriver } from './driver';
+import type {
+  ConnectOptions,
+  PublishOptions,
+  QueryableOptions,
+  SubscribeOptions,
+  ZenohDriver
+} from './driver';
 import { NodeWebSocket } from './nodeWebSocket';
 
 type SubscriptionHandle = {
+  close: () => Promise<void>;
+};
+
+type QueryableHandle = {
   close: () => Promise<void>;
 };
 
@@ -13,11 +23,21 @@ type ZenohSession = {
   close?: () => Promise<void> | void;
   info?: () => Promise<unknown> | unknown;
   getInfo?: () => Promise<unknown> | unknown;
-  declareSubscriber?: (keyexpr: string, handler: { handler: (sample: unknown) => void }) => Promise<unknown>;
+  declareSubscriber?: (
+    keyexpr: string,
+    handler: { handler: (sample: unknown) => void }
+  ) => Promise<unknown>;
   subscribe?: (keyexpr: string, handler: (sample: unknown) => void) => Promise<unknown>;
   createSubscriber?: (keyexpr: string, handler: (sample: unknown) => void) => Promise<unknown>;
   put?: (keyexpr: string, payload: Uint8Array, options?: { encoding?: string }) => Promise<void>;
   declarePublisher?: (keyexpr: string) => Promise<unknown>;
+  declareQueryable?: (
+    keyexpr: string,
+    options: {
+      handler: (query: unknown) => void;
+      complete?: boolean;
+    }
+  ) => Promise<unknown>;
 };
 
 type ZenohModule = {
@@ -27,16 +47,16 @@ type ZenohModule = {
   };
 };
 
-const importZenohModule = new Function(
-  'specifier',
-  'return import(specifier);'
-) as (specifier: string) => Promise<ZenohModule>;
+const importZenohModule = new Function('specifier', 'return import(specifier);') as (
+  specifier: string
+) => Promise<ZenohModule>;
 
 let cachedContainerLocalTarget: string | null | undefined;
 
 export const createRemoteApiWsDriver = (): ZenohDriver => {
   let session: ZenohSession | null = null;
   const subscriptions = new Map<string, SubscriptionHandle>();
+  const queryables = new Map<string, QueryableHandle>();
 
   const loadZenohModule = async (): Promise<ZenohModule> => {
     try {
@@ -65,7 +85,10 @@ export const createRemoteApiWsDriver = (): ZenohDriver => {
     globalWithWebSocket.WebSocket = NodeWebSocket;
   };
 
-  const buildConfig = async (endpoint: string, configJson?: string): Promise<Record<string, unknown>> => {
+  const buildConfig = async (
+    endpoint: string,
+    configJson?: string
+  ): Promise<Record<string, unknown>> => {
     let config: Record<string, unknown> = {};
     if (configJson?.trim()) {
       try {
@@ -100,7 +123,7 @@ export const createRemoteApiWsDriver = (): ZenohDriver => {
   const buildCapabilities = (info: unknown): Capabilities => {
     const capabilities: Capabilities = {
       driver: 'remote-api-ws',
-      features: ['subscribe', 'recent-keys', 'pause', 'publish']
+      features: ['subscribe', 'recent-keys', 'pause', 'publish', 'queryable']
     };
 
     if (info && typeof info === 'object') {
@@ -240,6 +263,13 @@ export const createRemoteApiWsDriver = (): ZenohDriver => {
     return toUint8Array(payload);
   };
 
+  const extractQueryKey = (query: unknown, fallback: string): string => {
+    if (!query || typeof query !== 'object') return fallback;
+    const record = query as Record<string, unknown>;
+    const key = resolveCandidate(query, record.keyExpr ?? record.keyexpr ?? record.key);
+    return asKeyString(key) ?? fallback;
+  };
+
   const extractTimestamp = (sample: unknown): number | undefined => {
     if (!sample || typeof sample !== 'object') return undefined;
     const record = sample as Record<string, unknown>;
@@ -280,9 +310,38 @@ export const createRemoteApiWsDriver = (): ZenohDriver => {
     }
   };
 
+  const closeQueryable = async (queryable: unknown): Promise<void> => {
+    const record = queryable as Record<string, unknown>;
+    try {
+      if (typeof record.undeclare === 'function') {
+        await (record.undeclare as () => Promise<void>)();
+        return;
+      }
+      if (typeof record.close === 'function') {
+        await (record.close as () => Promise<void>)();
+      }
+    } catch (error) {
+      if (isRemoteApiTimeout(error)) {
+        return;
+      }
+      throw error;
+    }
+  };
+
   const closeAllSubscriptions = async (): Promise<void> => {
     const handles = [...subscriptions.values()];
     subscriptions.clear();
+    const results = await Promise.allSettled(handles.map((handle) => handle.close()));
+    for (const result of results) {
+      if (result.status === 'rejected' && !isRemoteApiTimeout(result.reason)) {
+        throw result.reason;
+      }
+    }
+  };
+
+  const closeAllQueryables = async (): Promise<void> => {
+    const handles = [...queryables.values()];
+    queryables.clear();
     const results = await Promise.allSettled(handles.map((handle) => handle.close()));
     for (const result of results) {
       if (result.status === 'rejected' && !isRemoteApiTimeout(result.reason)) {
@@ -323,6 +382,7 @@ export const createRemoteApiWsDriver = (): ZenohDriver => {
 
   const disconnect = async (): Promise<void> => {
     await closeAllSubscriptions();
+    await closeAllQueryables();
     if (session?.close) {
       await session.close();
     }
@@ -391,17 +451,80 @@ export const createRemoteApiWsDriver = (): ZenohDriver => {
 
     const publisher =
       (await session.declarePublisher?.(options.keyexpr)) ??
-      (await (session as unknown as { createPublisher?: (keyexpr: string) => Promise<unknown> })
-        .createPublisher?.(options.keyexpr));
+      (await (
+        session as unknown as { createPublisher?: (keyexpr: string) => Promise<unknown> }
+      ).createPublisher?.(options.keyexpr));
     if (!publisher || typeof (publisher as { put?: unknown }).put !== 'function') {
       throw new Error('Zenoh session does not support publishing.');
     }
 
-    await (publisher as { put: (payload: Uint8Array, opts?: { encoding?: string }) => Promise<void> }).put(
-      options.payload,
-      putOptions
-    );
+    await (
+      publisher as { put: (payload: Uint8Array, opts?: { encoding?: string }) => Promise<void> }
+    ).put(options.payload, putOptions);
     await closePublisher(publisher);
+  };
+
+  const declareQueryable = async (options: QueryableOptions): Promise<void> => {
+    if (!session) {
+      throw new Error('Not connected to Zenoh.');
+    }
+    if (!session.declareQueryable) {
+      throw new Error('Zenoh session does not support queryables.');
+    }
+
+    const handleQuery = async (query: unknown): Promise<void> => {
+      const replyKeyexpr = options.replyKeyexpr?.trim() || extractQueryKey(query, options.keyexpr);
+      const record = query as { reply?: unknown; replyErr?: unknown; finalize?: unknown };
+      try {
+        if (typeof record.reply !== 'function') {
+          throw new Error('Received query does not support replies.');
+        }
+        const replyOptions = options.encoding ? { encoding: options.encoding } : undefined;
+        await (
+          record.reply as (
+            keyexpr: string,
+            payload: Uint8Array,
+            opts?: { encoding?: string }
+          ) => Promise<void>
+        )(replyKeyexpr, options.payload, replyOptions);
+      } catch (error) {
+        if (typeof record.replyErr === 'function') {
+          const details = error instanceof Error ? error.message : String(error);
+          await (
+            record.replyErr as (payload: Uint8Array, opts?: { encoding?: string }) => Promise<void>
+          )(textEncoder.encode(details), { encoding: 'text/plain' });
+        }
+      } finally {
+        if (typeof record.finalize === 'function') {
+          await (record.finalize as () => Promise<void>)();
+        }
+      }
+    };
+
+    const queryable = await session.declareQueryable(options.keyexpr, {
+      handler: (query) => {
+        void handleQuery(query);
+      },
+      complete: options.complete
+    });
+
+    if (!queryable) {
+      throw new Error('Zenoh session does not support queryables.');
+    }
+
+    queryables.set(options.queryableId, {
+      close: () => closeQueryable(queryable)
+    });
+  };
+
+  const undeclareQueryable = async (queryableId: string): Promise<void> => {
+    const handle = queryables.get(queryableId);
+    if (!handle) return;
+    try {
+      await handle.close();
+    } finally {
+      queryables.delete(queryableId);
+    }
   };
 
   return {
@@ -410,6 +533,8 @@ export const createRemoteApiWsDriver = (): ZenohDriver => {
     subscribe,
     unsubscribe,
     publish,
+    declareQueryable,
+    undeclareQueryable,
     healthCheck
   };
 };
@@ -530,7 +655,10 @@ const parseDefaultGateway = (routeTable: string): string | null => {
     if (destination !== '00000000') continue;
     const bytes = gatewayHex.match(/../g);
     if (!bytes || bytes.length !== 4) continue;
-    return bytes.reverse().map((part) => String(parseInt(part, 16))).join('.');
+    return bytes
+      .reverse()
+      .map((part) => String(parseInt(part, 16)))
+      .join('.');
   }
   return null;
 };

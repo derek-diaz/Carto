@@ -66,6 +66,26 @@ class WebCartoClient implements CartoApi {
     await this.request('/api/publish', params);
   };
 
+  declareQueryable = async (
+    params: Parameters<CartoApi['declareQueryable']>[0]
+  ): Promise<string> => {
+    const result = await this.request<{ queryableId: string }>('/api/declare-queryable', params);
+    return result.queryableId;
+  };
+
+  undeclareQueryable = async (
+    params: Parameters<CartoApi['undeclareQueryable']>[0]
+  ): Promise<void> => {
+    await this.request('/api/undeclare-queryable', params);
+  };
+
+  getQueryables = async (): Promise<Awaited<ReturnType<CartoApi['getQueryables']>>> => {
+    const result = await this.request<{
+      queryables: Awaited<ReturnType<CartoApi['getQueryables']>>;
+    }>('/api/get-queryables');
+    return result.queryables;
+  };
+
   onMessage = (callback: (payload: CartoMessagePayload) => void): (() => void) => {
     this.messageListeners.add(callback);
     this.ensureSocket();
@@ -128,9 +148,7 @@ class WebCartoClient implements CartoApi {
     });
 
     if (!response.ok) {
-      const errorPayload = (await response.json().catch(() => null)) as
-        | { error?: string }
-        | null;
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null;
       throw new Error(errorPayload?.error || `Request failed with status ${response.status}.`);
     }
 
@@ -146,7 +164,9 @@ class WebCartoClient implements CartoApi {
   }
 }
 
-const parseServerEvent = (raw: string | ArrayBuffer | Blob):
+const parseServerEvent = (
+  raw: string | ArrayBuffer | Blob
+):
   | { type: 'status'; data: ConnectionStatus }
   | { type: 'message'; data: CartoMessagePayload }
   | null => {

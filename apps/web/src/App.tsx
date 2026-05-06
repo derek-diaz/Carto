@@ -20,6 +20,7 @@ import type { LogEntry, LogInput, Toast, ToastInput } from './utils/notification
 import {
   decodeProtoPayload,
   encodeProtoPayload,
+  generateProtoSamplePayload,
   parseProtoSchema,
   resolveDecoderTypeIds,
   type DecoderConfig,
@@ -164,6 +165,7 @@ const App = () => {
     setSelectedSubId,
     recentKeys,
     selectedRecentKeys,
+    queryables,
     recentKeysFilter,
     setRecentKeysFilter,
     selectedMessages,
@@ -175,7 +177,9 @@ const App = () => {
     setPaused,
     clearBuffer,
     getMessage,
-    publish
+    publish,
+    declareQueryable,
+    undeclareQueryable
   } = useCarto();
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -314,6 +318,15 @@ const App = () => {
     });
     return labels;
   }, [protoTypeOptions]);
+
+  const getProtoSamplePayload = useCallback(
+    (typeId: string): string | null => {
+      const handle = protoTypeById.get(typeId);
+      if (!handle) return null;
+      return generateProtoSamplePayload(handle);
+    },
+    [protoTypeById]
+  );
 
   const persistProtoSchemas = useCallback((schemas: ProtoSchema[]) => {
     if (!('localStorage' in globalThis)) return;
@@ -825,7 +838,6 @@ const App = () => {
     },
     [
       mergeStringArrays,
-      parseProtoSchema,
       persistProtoSchemas,
       protoSchemas,
       readStringArray,
@@ -859,6 +871,12 @@ const App = () => {
     const features = status.capabilities?.features;
     if (!features || features.length === 0) return 'unknown';
     return features.includes('publish') ? 'supported' : 'unsupported';
+  }, [status.capabilities]);
+
+  const queryableSupport = useMemo<'supported' | 'unknown' | 'unsupported'>(() => {
+    const features = status.capabilities?.features;
+    if (!features || features.length === 0) return 'unknown';
+    return features.includes('queryable') ? 'supported' : 'unsupported';
   }, [status.capabilities]);
 
   const viewTitle = useMemo(() => {
@@ -896,14 +914,12 @@ const App = () => {
       return 'Defaults for new subscriptions.';
     }
     return status.connected ? 'Connected to the router.' : 'Configure and connect to a router.';
-  }, [publishSupport, selectedSub, status.connected, view]);
+  }, [publishSupport, status.connected, view]);
 
   const canCopyEndpoint =
     typeof navigator !== 'undefined' && typeof navigator.clipboard?.writeText === 'function';
   const endpointLabel = lastEndpoint || 'Not set';
   const endpointTitle = lastEndpoint || 'No endpoint yet';
-  const recentKeyexpr = recentKeys[0]?.key;
-  const selectedKeyexpr = selectedSub?.keyexpr;
   const handleCopyEndpoint = useCallback(async () => {
     if (!lastEndpoint || !canCopyEndpoint) return;
     try {
@@ -946,6 +962,38 @@ const App = () => {
       setLastPublish({ keyexpr, payload, encoding });
     },
     [protoTypeById, publish]
+  );
+
+  const handleDeclareQueryable = useCallback(
+    async (
+      keyexpr: string,
+      payload: string,
+      encoding: PublishDraft['encoding'],
+      protoTypeId?: string
+    ) => {
+      if (encoding === 'protobuf') {
+        if (!protoTypeId) {
+          throw new Error('Select a protobuf message type before declaring a queryable.');
+        }
+        const handle = protoTypeById.get(protoTypeId);
+        if (!handle) {
+          throw new Error('Selected protobuf type is not available.');
+        }
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(payload);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          throw new Error(`Invalid JSON payload. ${message}`);
+        }
+        const bytes = encodeProtoPayload(handle, parsed);
+        const encoded = bytesToBase64(bytes);
+        await declareQueryable(keyexpr, encoded, 'base64');
+        return;
+      }
+      await declareQueryable(keyexpr, payload, encoding);
+    },
+    [declareQueryable, protoTypeById]
   );
 
   const handleSubscribe = useCallback(
@@ -1203,9 +1251,14 @@ const App = () => {
               <PublishView
                 connected={status.connected}
                 publishSupport={publishSupport}
+                queryableSupport={queryableSupport}
                 draft={publishDraft}
                 onDraftChange={setPublishDraft}
                 onPublish={handlePublish}
+                onDeclareQueryable={handleDeclareQueryable}
+                queryables={queryables}
+                onUndeclareQueryable={undeclareQueryable}
+                getProtoSamplePayload={getProtoSamplePayload}
                 onLog={addLog}
                 onToast={addToast}
                 protoTypes={protoTypeOptions}
