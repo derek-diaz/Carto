@@ -7,6 +7,7 @@ import type {
   ConnectParams,
   ConnectionStatus,
   PublishEncoding,
+  QueryableInfo,
   RecentKeyStats
 } from '@shared/types';
 import { getCartoClient } from '../lib/cartoClient';
@@ -50,6 +51,7 @@ export const useCarto = () => {
   const [selectedMessages, setSelectedMessages] = useState<CartoMessage[]>([]);
   const [recentKeys, setRecentKeys] = useState<RecentKeyStats[]>([]);
   const [selectedRecentKeys, setSelectedRecentKeys] = useState<RecentKeyStats[]>([]);
+  const [queryables, setQueryables] = useState<QueryableInfo[]>([]);
   const [recentKeysFilter, setRecentKeysFilter] = useState('');
   const [lastEndpoint, setLastEndpoint] = useState('');
 
@@ -137,6 +139,7 @@ export const useCarto = () => {
     setSelectedMessages([]);
     setRecentKeys([]);
     setSelectedRecentKeys([]);
+    setQueryables([]);
   }, [resetPendingMessages]);
 
   useEffect(() => {
@@ -188,6 +191,31 @@ export const useCarto = () => {
       clearInterval(timer);
     };
   }, [status.connected, recentKeysFilter]);
+
+  useEffect(() => {
+    const carto = getCarto();
+    if (!carto || !status.connected) {
+      setQueryables([]);
+      return;
+    }
+
+    let mounted = true;
+    const fetchQueryables = async () => {
+      try {
+        const list = await carto.getQueryables();
+        if (mounted) setQueryables(list);
+      } catch {
+        // ignore polling errors
+      }
+    };
+
+    fetchQueryables();
+    const timer = setInterval(fetchQueryables, 1000);
+    return () => {
+      mounted = false;
+      clearInterval(timer);
+    };
+  }, [status.connected]);
 
   useEffect(() => {
     const carto = getCarto();
@@ -312,6 +340,26 @@ export const useCarto = () => {
     []
   );
 
+  const declareQueryable = useCallback(
+    async (keyexpr: string, payload: string, encoding: PublishEncoding, complete?: boolean) => {
+      const carto = getCarto();
+      if (!carto) {
+        throw new Error('Carto API is unavailable.');
+      }
+      const queryableId = await carto.declareQueryable({ keyexpr, payload, encoding, complete });
+      setQueryables(await carto.getQueryables());
+      return queryableId;
+    },
+    []
+  );
+
+  const undeclareQueryable = useCallback(async (queryableId: string) => {
+    const carto = getCarto();
+    if (!carto) return;
+    await carto.undeclareQueryable({ queryableId });
+    setQueryables(await carto.getQueryables());
+  }, []);
+
   return {
     status,
     lastEndpoint,
@@ -320,6 +368,7 @@ export const useCarto = () => {
     setSelectedSubId,
     recentKeys,
     selectedRecentKeys,
+    queryables,
     recentKeysFilter,
     setRecentKeysFilter,
     selectedMessages,
@@ -331,6 +380,8 @@ export const useCarto = () => {
     setPaused,
     clearBuffer,
     getMessage,
-    publish
+    publish,
+    declareQueryable,
+    undeclareQueryable
   };
 };

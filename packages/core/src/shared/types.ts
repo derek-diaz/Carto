@@ -143,3 +143,25 @@ export type PublishParams = {
   payload: string;
   encoding: PublishEncoding;
 };
+
+export type QueryableInfo = {
+  id: string;
+  keyexpr: string;
+  payload: string;
+  encoding: PublishEncoding;
+  complete: boolean;
+  replyKeyexpr?: string;
+  createdAt: number;
+};
+
+export type DeclareQueryableParams = {
+  keyexpr: string;
+  payload: string;
+  encoding: PublishEncoding;
+  complete?: boolean;
+  replyKeyexpr?: string;
+};
+
+export type UndeclareQueryableParams = {
+  queryableId: string;
+};

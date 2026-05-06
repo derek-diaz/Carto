@@ -21,6 +21,7 @@ export type PublishDraft = {
 type PublishPanelProps = {
   connected: boolean;
   publishSupport: 'supported' | 'unknown' | 'unsupported';
+  queryableSupport: 'supported' | 'unknown' | 'unsupported';
   draft: PublishDraft;
   onDraftChange: (next: PublishDraft) => void;
   onPublish: (
@@ -29,6 +30,13 @@ type PublishPanelProps = {
     encoding: PublishDraft['encoding'],
     protoTypeId?: string
   ) => Promise<void>;
+  onDeclareQueryable: (
+    keyexpr: string,
+    payload: string,
+    encoding: PublishDraft['encoding'],
+    protoTypeId?: string
+  ) => Promise<void>;
+  getProtoSamplePayload: (typeId: string) => string | null;
   onLog: (entry: LogInput) => void;
   onToast: (toast: ToastInput) => void;
   protoTypes: ProtoTypeOption[];
@@ -56,9 +64,12 @@ const persistHistory = (entries: string[]) => {
 const PublishPanel = ({
   connected,
   publishSupport,
+  queryableSupport,
   draft,
   onDraftChange,
   onPublish,
+  onDeclareQueryable,
+  getProtoSamplePayload,
   onLog,
   onToast,
   protoTypes
@@ -240,6 +251,40 @@ const PublishPanel = ({
     }
   };
 
+  const handleDeclareQueryable = async () => {
+    if (!connected) return;
+    const nextKeyexpr = draft.keyexpr.trim();
+    if (draft.encoding === 'protobuf' && !draft.protoTypeId) {
+      onToast({ type: 'warn', message: 'Select a protobuf type first.' });
+      return;
+    }
+    setBusy(true);
+    try {
+      await onDeclareQueryable(nextKeyexpr, draft.payload, draft.encoding, draft.protoTypeId);
+      if (nextKeyexpr) {
+        const next = mergeHistory(historyRef.current, [nextKeyexpr]);
+        commitHistory(next);
+        const details = { ...detailsRef.current };
+        details[nextKeyexpr] = {
+          keyexpr: nextKeyexpr,
+          encoding: draft.encoding,
+          payload: draft.payload,
+          protoTypeId: draft.protoTypeId
+        };
+        detailsRef.current = details;
+        persistDetails(details);
+      }
+      onToast({ type: 'ok', message: 'Queryable declared', detail: nextKeyexpr });
+      onLog({ level: 'info', source: 'queryable', message: `Declared queryable ${nextKeyexpr}.` });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      onToast({ type: 'error', message: 'Queryable failed', detail: message });
+      onLog({ level: 'error', source: 'queryable', message, detail: nextKeyexpr });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const applyHistorySelection = useCallback(
     (entry: string) => {
       const stored = detailsRef.current[entry];
@@ -312,6 +357,11 @@ const PublishPanel = ({
       const message = error instanceof Error ? error.message : 'Unable to copy payload.';
       onToast({ type: 'error', message: 'Copy failed', detail: message });
     }
+  };
+
+  const samplePayloadForType = (typeId: string | undefined) => {
+    if (!typeId) return DEFAULT_PUBLISH_JSON;
+    return getProtoSamplePayload(typeId) ?? DEFAULT_PUBLISH_JSON;
   };
 
   return (
@@ -392,6 +442,12 @@ const PublishPanel = ({
               Publishing is not advertised by the current driver. The request may still fail.
             </div>
           ) : null}
+
+          {connected && queryableSupport === 'unsupported' ? (
+            <div className="notice notice--info-warning publish_notice">
+              Queryables are not advertised by the current driver. The request may still fail.
+            </div>
+          ) : null}
         </div>
 
         <div className="publish_panel-columns">
@@ -435,9 +491,9 @@ const PublishPanel = ({
                       const next: PublishDraft = {
                         ...draft,
                         encoding: 'protobuf',
-                        protoTypeId: nextTypeId
+                        protoTypeId: nextTypeId,
+                        payload: samplePayloadForType(nextTypeId)
                       };
-                      if (!draft.payload.trim()) next.payload = DEFAULT_PUBLISH_JSON;
                       onDraftChange(next);
                     }}
                     type="button"
@@ -454,9 +510,14 @@ const PublishPanel = ({
                   <span>Protobuf type</span>
                   <select
                     value={draft.protoTypeId ?? ''}
-                    onChange={(event) =>
-                      onDraftChange({ ...draft, protoTypeId: event.target.value || undefined })
-                    }
+                    onChange={(event) => {
+                      const protoTypeId = event.target.value || undefined;
+                      onDraftChange({
+                        ...draft,
+                        protoTypeId,
+                        payload: samplePayloadForType(protoTypeId)
+                      });
+                    }}
                     disabled={!connected || busy || protoTypes.length === 0}
                   >
                     <option value="">Select a message type</option>
@@ -532,6 +593,18 @@ const PublishPanel = ({
                   <span className="publish_meta-pill">{encodingLabel}</span>
                   <span className="publish_meta-pill">{payloadLengthLabel}</span>
                 </div>
+                <button
+                  className="button publish_send publish_send--secondary"
+                  onClick={handleDeclareQueryable}
+                  disabled={
+                    !connected ||
+                    busy ||
+                    !draft.keyexpr.trim() ||
+                    (draft.encoding === 'protobuf' && !draft.protoTypeId)
+                  }
+                >
+                  Serve queryable
+                </button>
                 <button
                   className="button publish_send"
                   onClick={handlePublish}

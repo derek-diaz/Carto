@@ -6,12 +6,15 @@ import type {
   ClearBufferParams,
   ConnectionTestParams,
   ConnectionTestResult,
+  DeclareQueryableParams,
   GetMessageParams,
   GetRecentKeysParams,
   PauseParams,
   PublishParams,
+  QueryableInfo,
   RecentKeyStats,
   SubscribeParams,
+  UndeclareQueryableParams,
   UnsubscribeParams
 } from './types';
 
@@ -26,6 +29,9 @@ export type CartoApi = {
   getRecentKeys: (params?: GetRecentKeysParams) => Promise<RecentKeyStats[]>;
   clearBuffer: (params: ClearBufferParams) => Promise<void>;
   publish: (params: PublishParams) => Promise<void>;
+  declareQueryable: (params: DeclareQueryableParams) => Promise<string>;
+  undeclareQueryable: (params: UndeclareQueryableParams) => Promise<void>;
+  getQueryables: () => Promise<QueryableInfo[]>;
   onMessage: (callback: (payload: CartoMessagePayload) => void) => () => void;
   onStatus: (callback: (status: ConnectionStatus) => void) => () => void;
 };
