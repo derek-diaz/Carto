@@ -276,6 +276,54 @@ const SettingsView = ({
 
               <section className="settings_block">
                 <div className="settings_block-head">
+                  <h2>Import / Export</h2>
+                </div>
+
+                <div className="settings_io">
+                  <label className="field field--inline settings_toggle">
+                    <input
+                      type="checkbox"
+                      checked={mergeImport}
+                      onChange={(event) => setMergeImport(event.target.checked)}
+                    />
+                    <span>Merge with existing settings</span>
+                  </label>
+                  <div className="settings_row">
+                    <div>
+                      <div className="settings_group-title">Export settings</div>
+                      <div className="helper">Share protobufs, histories, and connection profiles.</div>
+                    </div>
+                    <button className="button button--ghost button--compact" type="button" onClick={handleExport}>
+                      Export
+                    </button>
+                  </div>
+                  <div className="settings_row">
+                    <div>
+                      <div className="settings_group-title">Import settings</div>
+                      <div className="helper">
+                        {mergeImport
+                          ? 'Adds entries and keeps your local values.'
+                          : 'Replaces local settings with the imported file.'}
+                      </div>
+                    </div>
+                    <label className="button button--ghost button--compact">
+                      Import
+                      <input
+                        type="file"
+                        accept="application/json,.json"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0] ?? null;
+                          handleImportFile(file).catch(() => {});
+                          event.currentTarget.value = '';
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
+              </section>
+
+              <section className="settings_block settings_block--history">
+                <div className="settings_block-head">
                   <h2>History</h2>
                 </div>
 
@@ -356,54 +404,6 @@ const SettingsView = ({
                         ))}
                       </div>
                     )}
-                  </div>
-                </div>
-              </section>
-
-              <section className="settings_block">
-                <div className="settings_block-head">
-                  <h2>Import / Export</h2>
-                </div>
-
-                <div className="settings_io">
-                  <label className="field field--inline settings_toggle">
-                    <input
-                      type="checkbox"
-                      checked={mergeImport}
-                      onChange={(event) => setMergeImport(event.target.checked)}
-                    />
-                    <span>Merge with existing settings</span>
-                  </label>
-                  <div className="settings_row">
-                    <div>
-                      <div className="settings_group-title">Export settings</div>
-                      <div className="helper">Share protobufs, histories, and connection profiles.</div>
-                    </div>
-                    <button className="button button--ghost button--compact" type="button" onClick={handleExport}>
-                      Export
-                    </button>
-                  </div>
-                  <div className="settings_row">
-                    <div>
-                      <div className="settings_group-title">Import settings</div>
-                      <div className="helper">
-                        {mergeImport
-                          ? 'Adds entries and keeps your local values.'
-                          : 'Replaces local settings with the imported file.'}
-                      </div>
-                    </div>
-                    <label className="button button--ghost button--compact">
-                      Import
-                      <input
-                        type="file"
-                        accept="application/json,.json"
-                        onChange={(event) => {
-                          const file = event.target.files?.[0] ?? null;
-                          handleImportFile(file).catch(() => {});
-                          event.currentTarget.value = '';
-                        }}
-                      />
-                    </label>
                   </div>
                 </div>
               </section>
