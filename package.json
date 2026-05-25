@@ -61,14 +61,14 @@
   "build": {
     "appId": "com.carto.app",
     "productName": "Carto",
-    "icon": "packages/core/src/shared/icon.png",
+    "icon": "assets/web/icon-512.png",
     "files": [
       "out/**",
       "package.json"
     ],
     "extraResources": [
       {
-        "from": "packages/core/src/shared/logo.png",
+        "from": "assets/web/icon-512.png",
         "to": "logo.png"
       }
     ],
@@ -84,11 +84,11 @@
       ],
       "maintainer": "Derek Diaz <derek.diaz@proton.me>",
       "category": "Utility",
-      "icon": "packages/core/src/shared/icon.png"
+      "icon": "assets/web/icon-512.png"
     },
     "win": {
       "target": "nsis",
-      "icon": "packages/core/src/shared/icon.ico"
+      "icon": "assets/web/favicon.ico"
     },
     "mac": {
       "target": "dmg",

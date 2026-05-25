@@ -192,8 +192,8 @@ body::after {
   border-radius: 8px;
   object-fit: cover;
   box-shadow: var(--shadow-soft);
-  background: var(--panel);
-  padding: 4px;
+  background: transparent;
+  padding: 0;
 }
 
 .rail_name {
@@ -1034,8 +1034,8 @@ body::after {
   width: 72px;
   height: 72px;
   border-radius: 14px;
-  background: var(--panel);
-  padding: 10px;
+  background: transparent;
+  padding: 0;
   box-shadow: var(--shadow-soft);
 }
 
@@ -2475,10 +2475,10 @@ body::after {
 .rail_logo {
   width: 44px;
   height: 44px;
-  padding: 8px;
+  padding: 0;
   border-radius: 14px;
   border: 1px solid rgba(99, 180, 255, 0.25);
-  background: linear-gradient(180deg, rgba(99, 180, 255, 0.16) 0%, rgba(99, 180, 255, 0.04) 100%);
+  background: transparent;
 }
 
 .rail_name {
@@ -3184,10 +3184,10 @@ body::after {
 .rail_logo {
   width: 36px;
   height: 36px;
-  padding: 6px;
+  padding: 0;
   border-radius: 8px;
   border-color: rgba(99, 180, 255, 0.42);
-  background: linear-gradient(180deg, rgba(99, 180, 255, 0.26) 0%, rgba(99, 180, 255, 0.08) 100%);
+  background: transparent;
   box-shadow: none;
 }
 
@@ -5340,7 +5340,7 @@ body {
 .rail_logo {
   width: 36px;
   height: 36px;
-  padding: 6px;
+  padding: 0;
   border-radius: 8px;
 }
 

@@ -1,4 +1,4 @@
-import logoUrl from '@shared/logo.png';
+import logoUrl from '@assets/web/icon-512.png';
 import { IconClose } from './Icons';
 
 type AboutDialogProps = {

@@ -1,6 +1,8 @@
 <div align="center">
-  <img src="packages/core/src/shared/logo_app.png" alt="Carto logo" width="220" height="220" />
-
+ 
+<p>
+    <img src="assets/web/icon-512.png" alt="Carto logo" width="200" height="200">
+</p>
   <h1>Carto</h1>
   <p><strong>Web-first Zenoh traffic inspector with desktop builds for Windows, macOS, and Linux</strong></p>
   <p>Inspect, filter, decode, and publish Zenoh messages in real time.</p>

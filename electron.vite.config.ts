@@ -34,10 +34,12 @@ export default defineConfig({
     plugins: [react()],
     resolve: {
       alias: {
+        '@assets': path.resolve(__dirname, 'assets'),
         '@shared': path.resolve(__dirname, 'packages/core/src/shared'),
         '@core': path.resolve(__dirname, 'packages/core/src')
       }
     },
+    publicDir: path.resolve(__dirname, 'assets/web'),
     server: {
       port: 5173,
       strictPort: true

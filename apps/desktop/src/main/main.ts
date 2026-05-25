@@ -14,8 +14,11 @@ const resolveWindowIcon = (): string | undefined => {
   const cwd = process.cwd();
   const appPath = app.getAppPath();
   const candidates = [
+    path.join(cwd, 'assets', 'web', 'icon-512.png'),
     path.join(cwd, 'packages', 'core', 'src', 'shared', 'logo.png'),
+    path.join(cwd, 'out', 'renderer', 'icon-512.png'),
     path.join(cwd, 'out', 'renderer', 'assets', 'logo.png'),
+    path.join(appPath, 'assets', 'web', 'icon-512.png'),
     path.join(appPath, 'packages', 'core', 'src', 'shared', 'logo.png'),
     path.join(process.resourcesPath, 'logo.png')
   ];
