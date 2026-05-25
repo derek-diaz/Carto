@@ -4447,7 +4447,7 @@ html:not(.theme-dark) .monitor_inspector-body pre {
 
 .settings_stage {
   display: flex;
-  min-height: 100%;
+  height: 100%;
   min-width: 0;
   background: #11161c;
 }
@@ -4465,10 +4465,11 @@ html:not(.theme-dark) .monitor_inspector-body pre {
 
 .settings_stage-main {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
   gap: 18px;
   min-height: 0;
   min-width: 0;
+  overflow-y: auto;
 }
 
 .settings_block,
@@ -4486,23 +4487,19 @@ html:not(.theme-dark) .monitor_inspector-body pre {
 
 .settings_block--history {
   min-height: 0;
-  overflow: hidden;
 }
 
 .settings_proto {
   overflow: hidden;
 }
 
-.settings_block--history .settings_history,
-.settings_block--history .settings_group,
-.settings_block--history .history_list,
 .settings_proto .proto_list {
   flex: 1 1 0;
+  overflow: auto;
+  padding-right: 4px;
 }
 
-.settings_block--history .history_list,
-.settings_proto .proto_list {
-  overflow: auto;
+.settings_block--history .history_list {
   padding-right: 4px;
 }
 
