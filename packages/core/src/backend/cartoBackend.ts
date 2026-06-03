@@ -133,6 +133,12 @@ const getErrorMessage = (error: unknown): string => {
   return Object.prototype.toString.call(error);
 };
 
+const normalizeSubscriptionBufferSize = (bufferSize: number | undefined): number => {
+  if (bufferSize === undefined) return DEFAULT_BUFFER_SIZE;
+  if (!Number.isFinite(bufferSize)) return DEFAULT_BUFFER_SIZE;
+  return Math.max(1, Math.round(bufferSize));
+};
+
 type SubscriptionState = {
   id: string;
   keyexpr: string;
@@ -164,6 +170,7 @@ export type CartoBackend = {
   testConnection: (params: ConnectionTestParams) => Promise<ConnectionTestResult>;
   disconnect: () => Promise<void>;
   subscribe: (keyexpr: string, bufferSize?: number) => Promise<string>;
+  updateSubscription: (subscriptionId: string, keyexpr: string, bufferSize?: number) => Promise<void>;
   unsubscribe: (subscriptionId: string) => Promise<void>;
   pause: (subscriptionId: string, paused: boolean) => Promise<void>;
   clearBuffer: (subscriptionId: string) => Promise<void>;
@@ -406,7 +413,8 @@ export const createCartoBackend = (): CartoBackend => {
       previewBytes: decoded.previewBytes,
       payloadTruncated: decoded.payloadTruncated || undefined,
       previewText: decoded.previewText,
-      searchText: decoded.searchText
+      searchText: decoded.searchText,
+      base64: decoded.base64
     };
 
     state.buffer.push(cartoMsg);
@@ -597,6 +605,15 @@ export const createCartoBackend = (): CartoBackend => {
     if (state.paused && driver.pause) {
       await driver.pause(state.id, true);
     }
+  };
+
+  const clearSubscriptionData = (state: SubscriptionState): void => {
+    state.buffer.clear();
+    state.recentKeys = createRecentKeysIndex();
+    state.detailPayloads.clear();
+    state.detailOrder = [];
+    state.detailBytes = 0;
+    rendererQueue.delete(state.id);
   };
 
   const attachQueryable = async (state: QueryableState): Promise<void> => {
@@ -877,7 +894,7 @@ export const createCartoBackend = (): CartoBackend => {
     }
 
     const subscriptionId = randomUUID();
-    const size = bufferSize ?? DEFAULT_BUFFER_SIZE;
+    const size = normalizeSubscriptionBufferSize(bufferSize);
     const state: SubscriptionState = {
       id: subscriptionId,
       keyexpr: trimmedKeyexpr,
@@ -899,6 +916,65 @@ export const createCartoBackend = (): CartoBackend => {
     }
 
     return subscriptionId;
+  };
+
+  const updateSubscription = async (
+    subscriptionId: string,
+    keyexpr: string,
+    bufferSize?: number
+  ): Promise<void> => {
+    if (!driver) {
+      throw new Error('Not connected to Zenoh.');
+    }
+
+    const state = subscriptions.get(subscriptionId);
+    if (!state) {
+      throw new Error('Subscription not found.');
+    }
+
+    const trimmedKeyexpr = keyexpr.trim();
+    const keyexprError = getKeyexprError(trimmedKeyexpr);
+    if (keyexprError) {
+      throw new Error(keyexprError);
+    }
+
+    const nextBufferSize =
+      bufferSize === undefined ? state.bufferSize : normalizeSubscriptionBufferSize(bufferSize);
+    state.bufferSize = nextBufferSize;
+    state.buffer.setMaxSize(nextBufferSize);
+
+    if (trimmedKeyexpr === state.keyexpr) {
+      return;
+    }
+
+    const previousKeyexpr = state.keyexpr;
+    const previousBufferSize = state.bufferSize;
+    try {
+      await driver.unsubscribe(subscriptionId);
+    } catch (error) {
+      if (!isRemoteApiTimeout(error)) {
+        throw error;
+      }
+      logDriverError('unsubscribe', error);
+    }
+
+    state.keyexpr = trimmedKeyexpr;
+    clearSubscriptionData(state);
+
+    try {
+      await attachSubscription(state);
+    } catch (error) {
+      state.keyexpr = previousKeyexpr;
+      state.bufferSize = previousBufferSize;
+      state.buffer.setMaxSize(previousBufferSize);
+      clearSubscriptionData(state);
+      try {
+        await attachSubscription(state);
+      } catch (rollbackError) {
+        logDriverError('resubscribe', rollbackError);
+      }
+      throw error;
+    }
   };
 
   const unsubscribe = async (subscriptionId: string): Promise<void> => {
@@ -972,7 +1048,7 @@ export const createCartoBackend = (): CartoBackend => {
       previewBytes: summary.sizeBytes,
       json: detail.json,
       text: detail.text,
-      base64: detail.base64
+      base64: detail.base64 ?? toBase64(payload)
     };
   };
 
@@ -1079,6 +1155,7 @@ export const createCartoBackend = (): CartoBackend => {
     testConnection,
     disconnect,
     subscribe,
+    updateSubscription,
     unsubscribe,
     pause,
     clearBuffer,
@@ -1097,6 +1174,7 @@ type DecodedPayload = {
   payloadTruncated: boolean;
   previewText: string;
   searchText: string;
+  base64?: string;
 };
 
 type DecodedPayloadDetail = {
@@ -1126,7 +1204,8 @@ const decodePayload = (payload: Uint8Array): DecodedPayload => {
       previewBytes: 0,
       payloadTruncated: false,
       previewText: '[binary]',
-      searchText: '[binary]'
+      searchText: '[binary]',
+      base64: ''
     };
   }
 
@@ -1136,6 +1215,8 @@ const decodePayload = (payload: Uint8Array): DecodedPayload => {
       : payload;
   const previewBytes = preview.byteLength;
   const payloadTruncated = previewBytes < payload.byteLength;
+  const fullBase64 =
+    payload.byteLength <= MAX_BASE64_PREVIEW_BYTES ? toBase64(payload) : undefined;
 
   let text: string | undefined;
   try {
@@ -1153,7 +1234,8 @@ const decodePayload = (payload: Uint8Array): DecodedPayload => {
       previewBytes,
       payloadTruncated,
       previewText: buildPreviewText(base64Text, payloadTruncated),
-      searchText: clampText(base64Text, MAX_SEARCH_TEXT_CHARS)
+      searchText: clampText(base64Text, MAX_SEARCH_TEXT_CHARS),
+      base64: fullBase64
     };
   }
 
@@ -1165,7 +1247,8 @@ const decodePayload = (payload: Uint8Array): DecodedPayload => {
       previewBytes,
       payloadTruncated,
       previewText: buildPreviewText(compactJson, payloadTruncated),
-      searchText: compactJson
+      searchText: compactJson,
+      base64: fullBase64
     };
   }
 
@@ -1176,7 +1259,8 @@ const decodePayload = (payload: Uint8Array): DecodedPayload => {
       previewBytes,
       payloadTruncated,
       previewText: buildPreviewText(content, payloadTruncated),
-      searchText: content
+      searchText: content,
+      base64: fullBase64
     };
   }
 
@@ -1188,7 +1272,8 @@ const decodePayload = (payload: Uint8Array): DecodedPayload => {
     previewBytes,
     payloadTruncated,
     previewText: buildPreviewText(base64Text, payloadTruncated),
-    searchText: clampText(base64Text, MAX_SEARCH_TEXT_CHARS)
+    searchText: clampText(base64Text, MAX_SEARCH_TEXT_CHARS),
+    base64: fullBase64
   };
 };
 

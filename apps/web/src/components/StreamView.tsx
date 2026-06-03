@@ -11,7 +11,7 @@ import type { DecoderConfig } from '../utils/proto';
 
 const ROW_HEIGHT = 46;
 const MAX_PROTO_PREVIEW_IN_FLIGHT = 2;
-const PROTO_PREVIEW_PENDING_TEXT = '[protobuf decoding…]';
+const PROTO_PREVIEW_PENDING_TEXT = '[protobuf decoding?]';
 const PROTO_PREVIEW_UNAVAILABLE_TEXT = '[protobuf unavailable]';
 
 export type StreamViewProps = {
@@ -367,7 +367,7 @@ const getPreviewText = (
   if (msg.previewText) return msg.previewText;
   if (msg.encoding === 'json') return '{json}';
   if (msg.encoding === 'text') return msg.text ?? '';
-  if (msg.base64) return `base64:${msg.base64}`;
+  if (msg.base64 !== undefined) return msg.base64 === '' ? '[empty payload]' : `base64:${msg.base64}`;
   return '[binary]';
 };
 

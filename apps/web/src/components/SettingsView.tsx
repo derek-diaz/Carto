@@ -5,6 +5,7 @@ import { IconClose } from './Icons';
 import ProtoPanel from './ProtoPanel';
 
 const SUBSCRIBE_HISTORY_KEY = 'carto.keyexpr.history';
+const SUBSCRIBE_HISTORY_DETAILS_KEY = 'carto.keyexpr.subscribe.details';
 const PUBLISH_HISTORY_KEY = 'carto.keyexpr.publish.history';
 const PUBLISH_HISTORY_DETAILS_KEY = 'carto.keyexpr.publish.details';
 const HISTORY_EVENT = 'carto.history.updated';
@@ -64,9 +65,9 @@ const SettingsView = ({
     }
   }, []);
 
-  const readPublishDetails = useCallback(() => {
+  const readHistoryDetails = useCallback((key: string) => {
     if (typeof globalThis === 'undefined' || !('localStorage' in globalThis)) return {};
-    const stored = globalThis.localStorage.getItem(PUBLISH_HISTORY_DETAILS_KEY);
+    const stored = globalThis.localStorage.getItem(key);
     if (!stored) return {};
     try {
       const parsed = JSON.parse(stored);
@@ -77,27 +78,27 @@ const SettingsView = ({
     }
   }, []);
 
-  const persistPublishDetails = useCallback((next: Record<string, unknown>) => {
+  const persistHistoryDetails = useCallback((key: string, next: Record<string, unknown>) => {
     if ('localStorage' in globalThis) {
-      globalThis.localStorage.setItem(PUBLISH_HISTORY_DETAILS_KEY, JSON.stringify(next));
+      globalThis.localStorage.setItem(key, JSON.stringify(next));
     }
   }, []);
 
-  const prunePublishDetails = useCallback(
-    (allowed: Set<string>) => {
-      const details = readPublishDetails();
+  const pruneHistoryDetails = useCallback(
+    (key: string, allowed: Set<string>) => {
+      const details = readHistoryDetails(key);
       let changed = false;
-      Object.keys(details).forEach((key) => {
-        if (!allowed.has(key)) {
-          delete details[key];
+      Object.keys(details).forEach((entryKey) => {
+        if (!allowed.has(entryKey)) {
+          delete details[entryKey];
           changed = true;
         }
       });
       if (changed) {
-        persistPublishDetails(details);
+        persistHistoryDetails(key, details);
       }
     },
-    [persistPublishDetails, readPublishDetails]
+    [persistHistoryDetails, readHistoryDetails]
   );
 
   const notifyHistoryUpdated = useCallback((type: 'subscribe' | 'publish') => {
@@ -170,19 +171,20 @@ const SettingsView = ({
     (next: string[]) => {
       setSubscribeHistory(next);
       persistHistory(SUBSCRIBE_HISTORY_KEY, next);
+      pruneHistoryDetails(SUBSCRIBE_HISTORY_DETAILS_KEY, new Set(next));
       notifyHistoryUpdated('subscribe');
     },
-    [notifyHistoryUpdated, persistHistory]
+    [notifyHistoryUpdated, persistHistory, pruneHistoryDetails]
   );
 
   const updatePublishHistory = useCallback(
     (next: string[]) => {
       setPublishHistory(next);
       persistHistory(PUBLISH_HISTORY_KEY, next);
-      prunePublishDetails(new Set(next));
+      pruneHistoryDetails(PUBLISH_HISTORY_DETAILS_KEY, new Set(next));
       notifyHistoryUpdated('publish');
     },
-    [notifyHistoryUpdated, persistHistory, prunePublishDetails]
+    [notifyHistoryUpdated, persistHistory, pruneHistoryDetails]
   );
 
   const handleRemoveSubscribe = (entry: string) => {

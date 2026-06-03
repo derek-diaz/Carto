@@ -33,6 +33,7 @@ const MessageInspector = ({
   onResizeKeyDown
 }: MessageInspectorProps) => {
   const [tab, setTab] = useState<TabId>('json');
+  const hasBase64 = message?.base64 !== undefined;
   const protobufJson = protoResult?.data === undefined ? '' : formatJson(protoResult.data);
   const messageJson = formatJson(message?.json);
   const dockBadge =
@@ -50,6 +51,8 @@ const MessageInspector = ({
       setTab('json');
     } else if (message.text) {
       setTab('text');
+    } else if (message.base64 !== undefined) {
+      setTab('base64');
     } else {
       setTab('base64');
     }
@@ -103,7 +106,7 @@ const MessageInspector = ({
           </span>
           <h3>{variant === 'dock' ? message.key : message.key}</h3>
           <p>
-            {subscriptionLabel ? `${subscriptionLabel} • ` : ''}
+            {subscriptionLabel ? `${subscriptionLabel} ? ` : ''}
             {formatTime(message.ts)}
           </p>
         </div>
@@ -158,7 +161,7 @@ const MessageInspector = ({
             </button>
             <button
               className={`tab ${tab === 'base64' ? 'tab--active' : ''}`}
-              disabled={!message.base64}
+              disabled={!hasBase64}
               onClick={() => setTab('base64')}
               type="button"
             >
@@ -173,8 +176,8 @@ const MessageInspector = ({
                 {formatBytes(message.sizeBytes)}).
               </div>
             ) : null}
-            {!message.json && !message.text && !message.base64 ? (
-              <div className="notice notice--info">Loading full payload…</div>
+            {!message.json && !message.text && !hasBase64 ? (
+              <div className="notice notice--info">Loading full payload?</div>
             ) : null}
             {tab === 'protobuf' && protoResult ? (
               protoResult.data === undefined ? (
@@ -191,7 +194,11 @@ const MessageInspector = ({
             ) : null}
             {tab === 'base64' ? (
               <pre>
-                {message.payloadTruncated ? `${message.base64 ?? ''}\n...` : (message.base64 ?? '')}
+                {message.payloadTruncated
+                  ? `${message.base64 ?? ''}\n...`
+                  : message.base64 === ''
+                    ? '[empty payload]'
+                    : (message.base64 ?? '')}
               </pre>
             ) : null}
           </div>

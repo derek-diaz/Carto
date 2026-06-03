@@ -201,3 +201,16 @@ export const IconChevronDown = (props: SVGProps<SVGSVGElement>) => (
     <path d="M6 9l6 6 6-6" />
   </Icon>
 );
+
+export const IconCheck = (props: SVGProps<SVGSVGElement>) => (
+  <Icon {...props}>
+    <path d="M5 12l5 5 9-11" />
+  </Icon>
+);
+
+export const IconEdit = (props: SVGProps<SVGSVGElement>) => (
+  <Icon {...props}>
+    <path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16v4z" />
+    <path d="M13.5 6.5l4 4" />
+  </Icon>
+);

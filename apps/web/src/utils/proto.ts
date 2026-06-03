@@ -25,6 +25,12 @@ export type ProtoTypeHandle = ProtoTypeRef & {
   schemaName: string;
 };
 
+export type ProtoDecodeCandidate = {
+  data: unknown;
+  exact: boolean;
+  score: number;
+};
+
 export type DecoderConfig =
   | { kind: 'raw' }
   | {
@@ -35,6 +41,20 @@ export type DecoderConfig =
       kind: 'protobuf_multi';
       typeIds: string[];
     };
+
+export const parseDecoderConfig = (value: unknown): DecoderConfig | undefined => {
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  if (record.kind === 'raw') return { kind: 'raw' };
+  if (record.kind === 'protobuf' && typeof record.typeId === 'string') {
+    return { kind: 'protobuf', typeId: record.typeId };
+  }
+  if (record.kind === 'protobuf_multi' && Array.isArray(record.typeIds)) {
+    const typeIds = record.typeIds.filter((typeId) => typeof typeId === 'string');
+    return { kind: 'protobuf_multi', typeIds };
+  }
+  return undefined;
+};
 
 const collectTypes = (root: protobuf.Root, schemaId: string): ProtoTypeRef[] => {
   const types: ProtoTypeRef[] = [];
@@ -93,14 +113,27 @@ export const generateProtoSamplePayload = (handle: ProtoTypeHandle): string => {
 };
 
 export const decodeProtoPayload = (handle: ProtoTypeHandle, bytes: Uint8Array): unknown => {
+  return decodeProtoPayloadCandidate(handle, bytes).data;
+};
+
+export const decodeProtoPayloadCandidate = (
+  handle: ProtoTypeHandle,
+  bytes: Uint8Array
+): ProtoDecodeCandidate => {
   const type = handle.root.lookupType(handle.fullName);
   const message = type.decode(bytes);
-  return type.toObject(message, {
+  const data = type.toObject(message, {
     longs: String,
     enums: String,
     bytes: String,
     defaults: true
   });
+  const encoded = type.encode(message).finish();
+  return {
+    data,
+    exact: bytesEqual(bytes, encoded),
+    score: scoreDecodedValue(data)
+  };
 };
 
 export const resolveDecoderTypeIds = (decoder: DecoderConfig | undefined): string[] => {
@@ -172,4 +205,32 @@ const buildScalarSample = (type: string): unknown => {
     default:
       return 1;
   }
+};
+
+const bytesEqual = (left: Uint8Array, right: Uint8Array): boolean => {
+  if (left.byteLength !== right.byteLength) return false;
+  for (let index = 0; index < left.byteLength; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+};
+
+const scoreDecodedValue = (value: unknown): number => {
+  if (Array.isArray(value)) {
+    return value.length === 0
+      ? 0
+      : 4 + value.reduce<number>((total, entry) => total + scoreDecodedValue(entry), 0);
+  }
+  if (value && typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>).reduce<number>(
+      (total, entry) => total + scoreDecodedValue(entry),
+      0
+    );
+  }
+  if (value === null || value === undefined) return 0;
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  if (typeof value === 'number') return value === 0 ? 0 : 1;
+  if (typeof value === 'bigint') return value === 0n ? 0 : 1;
+  if (typeof value === 'string') return value.length === 0 || value === '0' ? 0 : 1;
+  return 0;
 };

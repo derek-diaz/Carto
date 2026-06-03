@@ -12,6 +12,7 @@ import KeyExplorer from './KeyExplorer';
 import MessageInspector from './MessageInspector';
 import {
   IconClose,
+  IconEdit,
   IconHash,
   IconMonitor,
   IconPause,
@@ -65,6 +66,12 @@ type MonitorViewProps = {
   showSubscribe: boolean;
   setShowSubscribe: (value: boolean) => void;
   onSubscribe: (keyexpr: string, bufferSize?: number, decoder?: DecoderConfig) => Promise<string>;
+  onUpdateSubscription: (
+    subscriptionId: string,
+    keyexpr: string,
+    bufferSize?: number,
+    decoder?: DecoderConfig
+  ) => Promise<void>;
   onUnsubscribe: (subscriptionId: string) => Promise<void>;
   onPause: (subscriptionId: string, paused: boolean) => Promise<void>;
   onClear: (subscriptionId: string) => Promise<void>;
@@ -110,6 +117,7 @@ const MonitorView = ({
   showSubscribe,
   setShowSubscribe,
   onSubscribe,
+  onUpdateSubscription,
   onUnsubscribe,
   onPause,
   onClear,
@@ -127,10 +135,36 @@ const MonitorView = ({
   protoTypeLabels
 }: MonitorViewProps) => {
   const selectedSubscription = subscriptions.find((sub) => sub.id === selectedSubId) ?? null;
+  const [editingSubscriptionId, setEditingSubscriptionId] = useState<string | null>(null);
+  const editingSubscription =
+    subscriptions.find((sub) => sub.id === editingSubscriptionId) ?? null;
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [inspectorHeight, setInspectorHeight] = useState(readInspectorHeight);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const inspectorHeightRef = useRef(inspectorHeight);
+
+  useEffect(() => {
+    if (!editingSubscriptionId) return;
+    if (!subscriptions.some((sub) => sub.id === editingSubscriptionId)) {
+      setEditingSubscriptionId(null);
+      setShowSubscribe(false);
+    }
+  }, [editingSubscriptionId, setShowSubscribe, subscriptions]);
+
+  const closeSubscriptionModal = () => {
+    setEditingSubscriptionId(null);
+    setShowSubscribe(false);
+  };
+
+  const openNewSubscription = () => {
+    setEditingSubscriptionId(null);
+    setShowSubscribe(true);
+  };
+
+  const openEditSubscription = (subscriptionId: string) => {
+    setEditingSubscriptionId(subscriptionId);
+    setShowSubscribe(true);
+  };
 
   useEffect(() => {
     inspectorHeightRef.current = inspectorHeight;
@@ -214,6 +248,7 @@ const MonitorView = ({
           subscriptions={subscriptions}
           selectedSubId={selectedSubId}
           onSubscribe={onSubscribe}
+          onUpdateSubscription={onUpdateSubscription}
           onUnsubscribe={onUnsubscribe}
           onPause={onPause}
           onClear={onClear}
@@ -242,7 +277,7 @@ const MonitorView = ({
             </div>
             <button
               className="icon-button icon-button--ghost"
-              onClick={() => setShowSubscribe(true)}
+              onClick={openNewSubscription}
               type="button"
               title="Add subscription"
               aria-label="Add subscription"
@@ -282,6 +317,17 @@ const MonitorView = ({
                   </button>
 
                   <div className="monitor_subscription-actions">
+                    <button
+                      className="icon-button icon-button--ghost icon-button--compact"
+                      onClick={() => openEditSubscription(sub.id)}
+                      type="button"
+                      title={`Edit ${sub.keyexpr}`}
+                      aria-label={`Edit ${sub.keyexpr}`}
+                    >
+                      <span className="icon-button_icon" aria-hidden="true">
+                        <IconEdit />
+                      </span>
+                    </button>
                     <button
                       className="icon-button icon-button--ghost icon-button--compact"
                       onClick={() => {
@@ -329,14 +375,19 @@ const MonitorView = ({
         </aside>
 
         {showSubscribe ? (
-          <dialog className="modal" aria-label="Add subscription" open>
-            <div className="modal_backdrop" onClick={() => setShowSubscribe(false)} />
+          <dialog
+            className="modal"
+            aria-label={editingSubscription ? 'Edit subscription' : 'Add subscription'}
+            open
+          >
+            <div className="modal_backdrop" onClick={closeSubscriptionModal} />
             <div className="modal_content">
               <SubscribePanel
                 connected={connected}
                 subscriptions={subscriptions}
                 selectedSubId={selectedSubId}
                 onSubscribe={onSubscribe}
+                onUpdateSubscription={onUpdateSubscription}
                 onUnsubscribe={onUnsubscribe}
                 onPause={onPause}
                 onClear={onClear}
@@ -346,7 +397,8 @@ const MonitorView = ({
                 protoTypes={protoTypes}
                 decoderById={decoderById}
                 protoTypeLabels={protoTypeLabels}
-                onClose={() => setShowSubscribe(false)}
+                editingSubscription={editingSubscription}
+                onClose={closeSubscriptionModal}
               />
             </div>
           </dialog>

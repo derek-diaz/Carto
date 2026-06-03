@@ -1085,9 +1085,10 @@ body::after {
 }
 
 .settings_history {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  flex: 1 1 0;
   min-height: 0;
 }
 
@@ -1123,6 +1124,7 @@ body::after {
   flex-direction: column;
   gap: 10px;
   min-height: 0;
+  overflow: hidden;
 }
 
 .settings_group-header {
@@ -1130,6 +1132,11 @@ body::after {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex: 0 0 auto;
+}
+
+.settings_group-header > div {
+  min-width: 0;
 }
 
 .settings_group-title {
@@ -1142,13 +1149,17 @@ body::after {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex: 1 1 0;
   min-height: 0;
+  overflow: auto;
 }
 
 .history_row {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  flex: 0 0 auto;
   background: var(--panel-strong);
   border: 1px solid var(--border-soft);
   border-radius: 8px;
@@ -1269,6 +1280,7 @@ body::after {
 }
 
 .field--combo {
+  position: relative;
   z-index: 4;
 }
 
@@ -2079,6 +2091,107 @@ body::after {
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 10px;
+}
+
+.proto_types--scroll {
+  max-height: 96px;
+  overflow-y: auto;
+  align-content: flex-start;
+  padding: 2px;
+}
+
+.proto_menu {
+  max-height: 260px;
+}
+
+.proto_menu_actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 4px 6px;
+  position: sticky;
+  top: 0;
+  background: var(--panel-strong);
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: 4px;
+  z-index: 1;
+}
+
+.proto_menu_action {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.proto_menu_action:hover:not(:disabled) {
+  color: var(--accent-2);
+  background: var(--panel);
+}
+
+.proto_menu_action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.proto_option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 6px 8px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.proto_option:hover {
+  border-color: var(--border-soft);
+  background: var(--panel);
+}
+
+.proto_option--selected {
+  background: var(--panel);
+}
+
+.proto_option_check {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  color: #fff;
+}
+
+.proto_option--selected .proto_option_check {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.proto_option_check svg {
+  width: 12px;
+  height: 12px;
+}
+
+.proto_option_label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .proto_type {
@@ -3539,6 +3652,8 @@ body::after {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  position: relative;
+  z-index: 3;
 }
 
 .subscribe_field {
@@ -4465,11 +4580,12 @@ html:not(.theme-dark) .monitor_inspector-body pre {
 
 .settings_stage-main {
   display: grid;
-  grid-template-rows: auto auto auto;
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 18px;
+  height: 100%;
   min-height: 0;
   min-width: 0;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .settings_block,
@@ -4486,7 +4602,10 @@ html:not(.theme-dark) .monitor_inspector-body pre {
 }
 
 .settings_block--history {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 .settings_proto {
@@ -5059,17 +5178,27 @@ html:not(.theme-dark) .key_inspector-stat {
   .settings_stage-main {
     display: flex;
     flex-direction: column;
+    overflow: visible;
   }
 
-  .settings_block--history,
   .settings_proto {
     overflow: visible;
   }
 
-  .settings_block--history .history_list,
   .settings_proto .proto_list {
     overflow: visible;
     padding-right: 0;
+  }
+
+  .settings_history {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .settings_block--history .history_list {
+    max-height: 280px;
+    overflow: auto;
+    padding-right: 4px;
   }
 
   .connect_quick-row--top,

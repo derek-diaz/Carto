@@ -14,6 +14,7 @@ import type {
   QueryableInfo,
   RecentKeyStats,
   SubscribeParams,
+  UpdateSubscriptionParams,
   UndeclareQueryableParams,
   UnsubscribeParams
 } from './types';
@@ -23,6 +24,7 @@ export type CartoApi = {
   testConnection: (params: ConnectionTestParams) => Promise<ConnectionTestResult>;
   disconnect: () => Promise<void>;
   subscribe: (params: SubscribeParams) => Promise<string>;
+  updateSubscription: (params: UpdateSubscriptionParams) => Promise<void>;
   unsubscribe: (params: UnsubscribeParams) => Promise<void>;
   pause: (params: PauseParams) => Promise<void>;
   getMessage: (params: GetMessageParams) => Promise<CartoMessage | null>;
