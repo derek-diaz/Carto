@@ -95,11 +95,15 @@ app.on('window-all-closed', () => {
 
 const applyCsp = (window: BrowserWindow, isDev: boolean): void => {
   const devServer = isDev ? ' http://localhost:5173 ws://localhost:5173' : '';
-  const scriptEval = isDev ? " 'unsafe-eval' 'unsafe-inline'" : '';
+  // protobufjs generates encode/decode functions for runtime-loaded schemas.
+  // Carto supports user-loaded .proto files, so production builds need eval.
+  const scriptSources = isDev
+    ? " 'unsafe-eval' 'unsafe-inline' http://localhost:5173"
+    : " 'unsafe-eval'";
 
   const policy = [
     "default-src 'self'",
-    `script-src 'self'${scriptEval}${isDev ? ' http://localhost:5173' : ''}`,
+    `script-src 'self'${scriptSources}`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' data: https://fonts.gstatic.com",
     "img-src 'self' data: blob:",
