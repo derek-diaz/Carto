@@ -289,6 +289,49 @@ export const useCarto = () => {
     return subscriptionId;
   }, []);
 
+  const updateSubscription = useCallback(
+    async (subscriptionId: string, keyexpr: string, bufferSize: number) => {
+      const carto = getCarto();
+      if (!carto) {
+        throw new Error('Carto API is unavailable.');
+      }
+
+      const current = subscriptionsByIdRef.current.get(subscriptionId);
+      await carto.updateSubscription({ subscriptionId, keyexpr, bufferSize });
+
+      const trimmedKeyexpr = keyexpr.trim();
+      const keyexprChanged = current ? current.keyexpr !== trimmedKeyexpr : true;
+      resetPendingMessages(subscriptionId);
+
+      if (keyexprChanged) {
+        messagesBySubRef.current[subscriptionId] = [];
+        if (selectedSubIdRef.current === subscriptionId) {
+          setSelectedMessages([]);
+          setSelectedRecentKeys([]);
+        }
+      } else {
+        const messages = messagesBySubRef.current[subscriptionId] ?? [];
+        const cap = Math.max(1, bufferSize);
+        if (messages.length > cap) {
+          messages.splice(0, messages.length - cap);
+        }
+        if (selectedSubIdRef.current === subscriptionId) {
+          setSelectedMessages(messages.slice());
+        }
+      }
+
+      setSubscriptions((prev) =>
+        prev.map((sub) =>
+          sub.id === subscriptionId
+            ? { ...sub, keyexpr: trimmedKeyexpr, bufferSize: Math.max(1, bufferSize) }
+            : sub
+        )
+      );
+      setSelectedSubId(subscriptionId);
+    },
+    [resetPendingMessages]
+  );
+
   const unsubscribe = useCallback(async (subscriptionId: string) => {
     const carto = getCarto();
     if (!carto) return;
@@ -376,6 +419,7 @@ export const useCarto = () => {
     testConnection,
     disconnect,
     subscribe,
+    updateSubscription,
     unsubscribe,
     setPaused,
     clearBuffer,

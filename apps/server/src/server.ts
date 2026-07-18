@@ -17,6 +17,7 @@ import type {
   PublishParams,
   SubscribeParams,
   UndeclareQueryableParams,
+  UpdateSubscriptionParams,
   UnsubscribeParams
 } from '../../../packages/core/src/shared/types';
 
@@ -113,6 +114,12 @@ const handleApiRequest = async (
         const { keyexpr, bufferSize } = body as SubscribeParams;
         const subscriptionId = await backend.subscribe(keyexpr, bufferSize);
         respondJson(res, 200, { subscriptionId });
+        return;
+      }
+      case '/api/update-subscription': {
+        const { subscriptionId, keyexpr, bufferSize } = body as UpdateSubscriptionParams;
+        await backend.updateSubscription(subscriptionId, keyexpr, bufferSize);
+        respondJson(res, 200, { ok: true });
         return;
       }
       case '/api/unsubscribe':

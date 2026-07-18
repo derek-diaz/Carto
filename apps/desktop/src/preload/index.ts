@@ -10,6 +10,7 @@ const api: CartoApi = {
   testConnection: (params) => ipcRenderer.invoke('carto.testConnection', params),
   disconnect: () => ipcRenderer.invoke('carto.disconnect'),
   subscribe: (params) => ipcRenderer.invoke('carto.subscribe', params),
+  updateSubscription: (params) => ipcRenderer.invoke('carto.updateSubscription', params),
   unsubscribe: (params) => ipcRenderer.invoke('carto.unsubscribe', params),
   pause: (params) => ipcRenderer.invoke('carto.pause', params),
   getMessage: (params) => ipcRenderer.invoke('carto.getMessage', params),

@@ -18,12 +18,14 @@ import {
 import { useCarto } from './store/useCarto';
 import type { LogEntry, LogInput, Toast, ToastInput } from './utils/notifications';
 import {
-  decodeProtoPayload,
+  decodeProtoPayloadCandidate,
   encodeProtoPayload,
   generateProtoSamplePayload,
+  parseDecoderConfig,
   parseProtoSchema,
   resolveDecoderTypeIds,
   type DecoderConfig,
+  type ProtoDecodeCandidate,
   type ProtoSchema,
   type ProtoTypeHandle,
   type ProtoTypeOption
@@ -38,6 +40,7 @@ const ERROR_TOAST_MS = 6000;
 const PROTO_STORAGE_KEY = 'carto.proto.schemas';
 const RING_BUFFER_STORAGE_KEY = 'carto.ringBuffer.size';
 const SUBSCRIBE_HISTORY_KEY = 'carto.keyexpr.history';
+const SUBSCRIBE_DETAILS_KEY = 'carto.keyexpr.subscribe.details';
 const PUBLISH_HISTORY_KEY = 'carto.keyexpr.publish.history';
 const PUBLISH_DETAILS_KEY = 'carto.keyexpr.publish.details';
 const PROFILE_STORAGE_KEY = 'carto.connectionProfiles';
@@ -115,6 +118,30 @@ const toProtoTablePreview = (value: unknown): string => {
   return formatted;
 };
 
+const getProtoKeyAffinity = (handle: ProtoTypeHandle, key: string): number => {
+  const typeName = normalizeProtoHint(handle.name.split('.').pop() ?? handle.name);
+  if (!typeName) return 0;
+  const segments = key
+    .split('/')
+    .map((segment) => normalizeProtoHint(segment))
+    .filter(Boolean);
+  if (segments.some((segment) => segment === typeName)) return 4;
+  if (segments.some((segment) => typeName.includes(segment) || segment.includes(typeName))) return 2;
+  return 0;
+};
+
+const normalizeProtoHint = (value: string): string => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+const isBetterProtoCandidate = (
+  candidate: ProtoDecodeCandidate & { affinity: number },
+  best: (ProtoDecodeCandidate & { affinity: number }) | null
+): boolean => {
+  if (!best) return true;
+  if (candidate.exact !== best.exact) return candidate.exact;
+  if (candidate.score !== best.score) return candidate.score > best.score;
+  return candidate.affinity > best.affinity;
+};
+
 type StoredProtoSchema = {
   id: string;
   name: string;
@@ -134,10 +161,25 @@ type SettingsExport = {
     protoSchemas?: StoredProtoSchema[];
     histories?: {
       subscribe?: string[];
+      subscribeDetails?: Record<string, DecoderConfig>;
       publish?: string[];
       publishDetails?: Record<string, PublishDraft>;
     };
     connectionProfiles?: unknown;
+  };
+};
+
+const rewriteDecoderTypeIds = (
+  decoder: DecoderConfig,
+  typeIdRewrites: Map<string, string>
+): DecoderConfig => {
+  if (typeIdRewrites.size === 0 || decoder.kind === 'raw') return decoder;
+  if (decoder.kind === 'protobuf') {
+    return { kind: 'protobuf', typeId: typeIdRewrites.get(decoder.typeId) ?? decoder.typeId };
+  }
+  return {
+    kind: 'protobuf_multi',
+    typeIds: decoder.typeIds.map((typeId) => typeIdRewrites.get(typeId) ?? typeId)
   };
 };
 
@@ -173,6 +215,7 @@ const App = () => {
     testConnection,
     disconnect,
     subscribe,
+    updateSubscription,
     unsubscribe,
     setPaused,
     clearBuffer,
@@ -275,7 +318,7 @@ const App = () => {
     return protoSchemas.flatMap((schema) =>
       schema.types.map((type) => ({
         ...type,
-        label: `${schema.name} • ${type.name}`,
+        label: `${schema.name} ? ${type.name}`,
         schemaName: schema.name
       }))
     );
@@ -398,7 +441,7 @@ const App = () => {
       decoder: DecoderConfig | undefined,
       message: Pick<CartoMessage, 'key' | 'base64' | 'payloadTruncated'> | null | undefined
     ) => {
-      if (!decoder || !message?.base64) return null;
+      if (!decoder || !message || message.base64 === undefined) return null;
       if (message.payloadTruncated) {
         return {
           error: 'Payload preview is truncated; protobuf decode needs the full message.'
@@ -409,23 +452,39 @@ const App = () => {
 
       const bytes = base64ToBytes(message.base64);
       let firstError: string | null = null;
+      let best:
+        | (ProtoDecodeCandidate & {
+            affinity: number;
+            handle: ProtoTypeHandle;
+          })
+        | null = null;
 
       for (const typeId of typeIds) {
         const handle = protoTypeById.get(typeId);
         if (!handle) continue;
         try {
-          const decoded = decodeProtoPayload(handle, bytes);
-          return {
-            data: decoded,
-            label: handle.name,
-            schemaName: handle.schemaName,
-            typeId: handle.id
+          const candidate = {
+            ...decodeProtoPayloadCandidate(handle, bytes),
+            affinity: getProtoKeyAffinity(handle, message.key),
+            handle
           };
+          if (isBetterProtoCandidate(candidate, best)) {
+            best = candidate;
+          }
         } catch (error) {
           if (!firstError) {
             firstError = error instanceof Error ? error.message : String(error);
           }
         }
+      }
+
+      if (best) {
+        return {
+          data: best.data,
+          label: best.handle.name,
+          schemaName: best.handle.schemaName,
+          typeId: best.handle.id
+        };
       }
 
       return {
@@ -583,9 +642,32 @@ const App = () => {
     return next;
   }, []);
 
+  const readDecoderDetails = useCallback((raw: string | null): Record<string, DecoderConfig> => {
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return {};
+      const next: Record<string, DecoderConfig> = {};
+      Object.entries(parsed as Record<string, unknown>).forEach(([key, value]) => {
+        const decoder = parseDecoderConfig(
+          value && typeof value === 'object' && 'decoder' in value
+            ? (value as { decoder?: unknown }).decoder
+            : value
+        );
+        if (decoder) next[key] = decoder;
+      });
+      return next;
+    } catch {
+      return {};
+    }
+  }, []);
+
   const exportSettings = useCallback((): SettingsExport => {
     const subscribeHistory = readStringArray(
       'localStorage' in globalThis ? globalThis.localStorage.getItem(SUBSCRIBE_HISTORY_KEY) : null
+    );
+    const subscribeDetails = readDecoderDetails(
+      'localStorage' in globalThis ? globalThis.localStorage.getItem(SUBSCRIBE_DETAILS_KEY) : null
     );
     const publishHistory = readStringArray(
       'localStorage' in globalThis ? globalThis.localStorage.getItem(PUBLISH_HISTORY_KEY) : null
@@ -644,13 +726,14 @@ const App = () => {
         })),
         histories: {
           subscribe: subscribeHistory,
+          subscribeDetails,
           publish: publishHistory,
           publishDetails
         },
         connectionProfiles
       }
     };
-  }, [protoSchemas, readStringArray, ringBufferSize, theme]);
+  }, [protoSchemas, readDecoderDetails, readStringArray, ringBufferSize, theme]);
 
   const importSettings = useCallback(
     (
@@ -667,6 +750,7 @@ const App = () => {
         root.data && typeof root.data === 'object'
           ? (root.data as Record<string, unknown>)
           : (root as Record<string, unknown>);
+      const typeIdRewrites = new Map<string, string>();
 
       if (typeof data.theme === 'string' && mode === 'replace') {
         if (data.theme === 'light' || data.theme === 'dark') {
@@ -706,10 +790,25 @@ const App = () => {
         });
         if (mode === 'merge') {
           const existing = protoSchemas;
-          const existingKeys = new Set(existing.map((schema) => `${schema.name}::${schema.source}`));
+          const existingByKey = new Map(
+            existing.map((schema) => [`${schema.name}::${schema.source}`, schema])
+          );
+          const existingKeys = new Set(existingByKey.keys());
           const merged = [...existing];
           nextSchemas.forEach((schema) => {
             const key = `${schema.name}::${schema.source}`;
+            const existingSchema = existingByKey.get(key);
+            if (existingSchema) {
+              schema.types.forEach((type) => {
+                const existingType = existingSchema.types.find(
+                  (candidate) => candidate.fullName === type.fullName
+                );
+                if (existingType) {
+                  typeIdRewrites.set(type.id, existingType.id);
+                }
+              });
+              return;
+            }
             if (!existingKeys.has(key)) {
               existingKeys.add(key);
               merged.push(schema);
@@ -737,6 +836,29 @@ const App = () => {
             window.dispatchEvent(new CustomEvent(HISTORY_EVENT, { detail: { type: 'subscribe' } }));
           }
         }
+        if (record.subscribeDetails && typeof record.subscribeDetails === 'object') {
+          const next: Record<string, DecoderConfig> = {};
+          Object.entries(record.subscribeDetails as Record<string, unknown>).forEach(([key, value]) => {
+            const decoder = parseDecoderConfig(
+              value && typeof value === 'object' && 'decoder' in value
+                ? (value as { decoder?: unknown }).decoder
+                : value
+            );
+            if (decoder) next[key] = rewriteDecoderTypeIds(decoder, typeIdRewrites);
+          });
+          if ('localStorage' in globalThis) {
+            if (mode === 'merge') {
+              const current = readDecoderDetails(globalThis.localStorage.getItem(SUBSCRIBE_DETAILS_KEY));
+              const merged = { ...next, ...current };
+              globalThis.localStorage.setItem(SUBSCRIBE_DETAILS_KEY, JSON.stringify(merged));
+            } else {
+              globalThis.localStorage.setItem(SUBSCRIBE_DETAILS_KEY, JSON.stringify(next));
+            }
+          }
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent(HISTORY_EVENT, { detail: { type: 'subscribe' } }));
+          }
+        }
         if (Array.isArray(record.publish)) {
           const nextEntries = record.publish.filter((entry) => typeof entry === 'string') as string[];
           if ('localStorage' in globalThis) {
@@ -759,6 +881,8 @@ const App = () => {
               encoding: entry.encoding,
               payload: entry.payload,
               protoTypeId: entry.protoTypeId
+                ? typeIdRewrites.get(entry.protoTypeId) ?? entry.protoTypeId
+                : undefined
             };
           });
           if ('localStorage' in globalThis) {
@@ -840,6 +964,7 @@ const App = () => {
       mergeStringArrays,
       persistProtoSchemas,
       protoSchemas,
+      readDecoderDetails,
       readStringArray,
       setProtoSchemas,
       setRingBufferSize,
@@ -1008,6 +1133,27 @@ const App = () => {
       return subscriptionId;
     },
     [ringBufferSize, subscribe]
+  );
+
+  const handleUpdateSubscription = useCallback(
+    async (
+      subscriptionId: string,
+      keyexpr: string,
+      bufferSize?: number,
+      decoder?: DecoderConfig
+    ) => {
+      const resolvedBufferSize = bufferSize ?? ringBufferSize;
+      await updateSubscription(subscriptionId, keyexpr, resolvedBufferSize);
+      setSubscriptionDecoders((prev) => ({
+        ...prev,
+        [subscriptionId]: decoder ?? { kind: 'raw' }
+      }));
+      if (subscriptionId === selectedSubId) {
+        selectedMessageRequestRef.current += 1;
+        setSelectedMessage(null);
+      }
+    },
+    [ringBufferSize, selectedSubId, updateSubscription]
   );
 
   const handleUnsubscribe = useCallback(
@@ -1226,6 +1372,7 @@ const App = () => {
                 showSubscribe={showSubscribe}
                 setShowSubscribe={setShowSubscribe}
                 onSubscribe={handleSubscribe}
+                onUpdateSubscription={handleUpdateSubscription}
                 onUnsubscribe={handleUnsubscribe}
                 onPause={setPaused}
                 onClear={clearBuffer}

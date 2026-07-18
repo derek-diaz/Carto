@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   AuthConfig,
   ConnectionStatus,
@@ -10,12 +10,14 @@ import type {
   TlsConfig
 } from '@shared/types';
 import type { LogInput, ToastInput } from '../utils/notifications';
-import { IconChevronDown, IconLinkOff, IconPlug, IconSave, IconTrash } from './Icons';
+import { IconChevronDown, IconClose, IconLinkOff, IconPlug, IconSave, IconTrash } from './Icons';
 
 const DEFAULT_ENDPOINT = (() => {
   return 'ws://127.0.0.1:10000/';
 })();
 const PROFILE_STORAGE_KEY = 'carto.connectionProfiles';
+const ENDPOINT_HISTORY_KEY = 'carto.endpoint.history';
+const MAX_ENDPOINT_HISTORY = 8;
 const SETTINGS_EVENT = 'carto.settings.imported';
 const DEFAULT_HEALTH_INTERVAL_MS = '5000';
 const DEFAULT_RECONNECT_BASE_DELAY_MS = '1000';
@@ -71,6 +73,37 @@ const parseProfiles = (raw: string | null): ConnectionProfile[] => {
       .filter((entry): entry is ConnectionProfile => entry !== null);
   } catch {
     return [];
+  }
+};
+
+const parseEndpointHistory = (raw: string | null): string[] => {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry): entry is string => typeof entry === 'string');
+  } catch {
+    return [];
+  }
+};
+
+const mergeHistory = (base: string[], add: string[]) => {
+  const combined = [...add, ...base];
+  const seen = new Set<string>();
+  const next: string[] = [];
+  for (const entry of combined) {
+    if (!entry) continue;
+    if (!seen.has(entry)) {
+      seen.add(entry);
+      next.push(entry);
+    }
+  }
+  return next.slice(0, MAX_ENDPOINT_HISTORY);
+};
+
+const persistEndpointHistory = (entries: string[]) => {
+  if ('localStorage' in globalThis) {
+    globalThis.localStorage.setItem(ENDPOINT_HISTORY_KEY, JSON.stringify(entries));
   }
 };
 
@@ -170,6 +203,12 @@ const ConnectPanel = ({
   onToast
 }: ConnectPanelProps) => {
   const [endpoint, setEndpoint] = useState(defaultEndpoint ?? DEFAULT_ENDPOINT);
+  const [endpointHistory, setEndpointHistory] = useState<string[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const comboRef = useRef<HTMLDivElement | null>(null);
+  const endpointInputRef = useRef<HTMLInputElement | null>(null);
+  const historyRef = useRef<string[]>([]);
+  const suppressHistoryOpenRef = useRef(false);
   const [configJson, setConfigJson] = useState('');
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -214,6 +253,43 @@ const ConnectPanel = ({
     const stored = globalThis.localStorage.getItem(PROFILE_STORAGE_KEY);
     setProfiles(parseProfiles(stored));
   }, []);
+
+  const applyHistory = useCallback((entries: string[]) => {
+    historyRef.current = entries;
+    setEndpointHistory(entries);
+  }, []);
+
+  const commitHistory = useCallback(
+    (entries: string[]) => {
+      applyHistory(entries);
+      persistEndpointHistory(entries);
+    },
+    [applyHistory]
+  );
+
+  const handleRemoveHistory = useCallback(
+    (entry: string) => {
+      commitHistory(historyRef.current.filter((item) => item !== entry));
+    },
+    [commitHistory]
+  );
+
+  useEffect(() => {
+    if (!('localStorage' in globalThis)) return;
+    const stored = globalThis.localStorage.getItem(ENDPOINT_HISTORY_KEY);
+    applyHistory(parseEndpointHistory(stored));
+  }, [applyHistory]);
+
+  useEffect(() => {
+    if (!showHistory) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!comboRef.current) return;
+      if (comboRef.current.contains(event.target as Node)) return;
+      setShowHistory(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [showHistory]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -324,6 +400,7 @@ const ConnectPanel = ({
       };
 
       await onConnect(params);
+      commitHistory(mergeHistory(historyRef.current, [trimmedEndpoint]));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setLocalError(message);
@@ -470,18 +547,77 @@ const ConnectPanel = ({
   return (
     <section className="panel panel--accent connect_panel">
       <div className="connect_quick connect_quick--hero">
-        <label className="field">
+        <label className="field field--combo">
           <span>Router endpoint</span>
-          <input
-            type="text"
-            value={endpoint}
-            onChange={(event) => {
-              setEndpoint(event.target.value);
-              setLocalError(null);
-            }}
-            placeholder={DEFAULT_ENDPOINT}
-            disabled={busy || status.connected}
-          />
+          <div className="combo" ref={comboRef}>
+            <input
+              ref={endpointInputRef}
+              className="combo_input"
+              type="text"
+              value={endpoint}
+              onChange={(event) => {
+                setEndpoint(event.target.value);
+                setLocalError(null);
+              }}
+              onFocus={() => {
+                if (suppressHistoryOpenRef.current) {
+                  suppressHistoryOpenRef.current = false;
+                  return;
+                }
+                if (endpointHistory.length > 0) setShowHistory(true);
+              }}
+              placeholder={DEFAULT_ENDPOINT}
+              disabled={busy || status.connected}
+            />
+            <button
+              className="combo_toggle"
+              type="button"
+              onClick={() => setShowHistory((prev) => !prev)}
+              aria-label="Toggle endpoint history"
+              disabled={busy || status.connected}
+            >
+              <span className="combo_icon" aria-hidden="true">
+                <IconChevronDown />
+              </span>
+            </button>
+            {showHistory ? (
+              <div className="combo_menu" role="listbox">
+                {endpointHistory.length === 0 ? (
+                  <div className="combo_empty">No recent endpoints yet.</div>
+                ) : (
+                  endpointHistory.map((entry) => (
+                    <div key={entry} className="combo_option">
+                      <button
+                        className="combo_option_button"
+                        type="button"
+                        role="option"
+                        onClick={() => {
+                          setEndpoint(entry);
+                          setLocalError(null);
+                          setShowHistory(false);
+                          suppressHistoryOpenRef.current = true;
+                          endpointInputRef.current?.focus();
+                        }}
+                      >
+                        {entry}
+                      </button>
+                      <button
+                        className="icon-button icon-button--compact icon-button--ghost combo_option_remove"
+                        type="button"
+                        title={`Remove ${entry}`}
+                        aria-label={`Remove ${entry} from history`}
+                        onClick={() => handleRemoveHistory(entry)}
+                      >
+                        <span className="icon-button_icon" aria-hidden="true">
+                          <IconClose />
+                        </span>
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : null}
+          </div>
         </label>
         <div className="connect_quick-row connect_quick-row--top">
           <div className="connect_summary">

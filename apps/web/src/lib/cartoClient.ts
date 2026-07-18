@@ -31,6 +31,12 @@ class WebCartoClient implements CartoApi {
     return result.subscriptionId;
   };
 
+  updateSubscription = async (
+    params: Parameters<CartoApi['updateSubscription']>[0]
+  ): Promise<void> => {
+    await this.request('/api/update-subscription', params);
+  };
+
   unsubscribe = async (params: Parameters<CartoApi['unsubscribe']>[0]): Promise<void> => {
     await this.request('/api/unsubscribe', params);
   };

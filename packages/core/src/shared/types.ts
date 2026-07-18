@@ -113,6 +113,12 @@ export type SubscribeParams = {
   bufferSize?: number;
 };
 
+export type UpdateSubscriptionParams = {
+  subscriptionId: string;
+  keyexpr: string;
+  bufferSize?: number;
+};
+
 export type PauseParams = {
   subscriptionId: string;
   paused: boolean;

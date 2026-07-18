@@ -11,6 +11,7 @@ import type {
   PublishParams,
   SubscribeParams,
   UndeclareQueryableParams,
+  UpdateSubscriptionParams,
   UnsubscribeParams
 } from '../../../../packages/core/src/shared/types';
 import type { CartoBackend } from '../../../../packages/core/src/backend/cartoBackend';
@@ -31,6 +32,10 @@ export const registerIpc = (backend: CartoBackend): void => {
 
   ipcMain.handle('carto.subscribe', async (_event, params: SubscribeParams) => {
     return backend.subscribe(params.keyexpr, params.bufferSize);
+  });
+
+  ipcMain.handle('carto.updateSubscription', async (_event, params: UpdateSubscriptionParams) => {
+    await backend.updateSubscription(params.subscriptionId, params.keyexpr, params.bufferSize);
   });
 
   ipcMain.handle('carto.unsubscribe', async (_event, params: UnsubscribeParams) => {
