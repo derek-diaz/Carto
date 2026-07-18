@@ -211,6 +211,10 @@ npm run dist:linux
 
 Desktop release automation remains in GitHub Actions via Electron/electron-builder while the app runtime moves toward a web-first architecture.
 
+## License
+
+Carto is licensed under the [Apache License 2.0](LICENSE).
+
 ## Keywords
 
 Zenoh, Eclipse Zenoh, Zenoh inspector, Zenoh monitoring, Zenoh debugging tool, Zenoh desktop client, pub/sub observability, message stream viewer, key expression explorer, Electron Zenoh app, TypeScript desktop app
