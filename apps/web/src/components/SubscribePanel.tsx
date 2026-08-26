@@ -20,6 +20,7 @@ import {
 import { getKeyexprError } from '@shared/keyexpr';
 
 const DEFAULT_KEYEXPR = 'demo/**';
+const ONBOARDING_KEYEXPR_PRESETS = ['demo/**', 'carto/demo/**', '**'];
 const KEYEXPR_HISTORY_KEY = 'carto.keyexpr.history';
 const KEYEXPR_HISTORY_DETAILS_KEY = 'carto.keyexpr.subscribe.details';
 const MAX_KEYEXPR_HISTORY = 8;
@@ -47,6 +48,7 @@ type SubscribePanelProps = {
   protoTypeLabels: Record<string, string>;
   editingSubscription?: Subscription | null;
   onClose?: () => void;
+  variant?: 'default' | 'onboarding';
 };
 
 const mergeHistory = (base: string[], add: string[]) => {
@@ -110,10 +112,12 @@ const SubscribePanel = ({
   decoderById,
   protoTypeLabels,
   editingSubscription,
-  onClose
+  onClose,
+  variant = 'default'
 }: SubscribePanelProps) => {
   const isModal = Boolean(onClose);
   const isEditing = Boolean(editingSubscription);
+  const isOnboarding = variant === 'onboarding';
   const [keyexpr, setKeyexpr] = useState(DEFAULT_KEYEXPR);
   const [bufferSizeText, setBufferSizeText] = useState('');
   const [keyexprHistory, setKeyexprHistory] = useState<string[]>([]);
@@ -481,16 +485,34 @@ const SubscribePanel = ({
   };
 
   return (
-    <section className={`panel panel--subscribe ${isModal ? 'subscribe_panel--modal' : ''}`}>
+    <section
+      className={`panel panel--subscribe ${isModal ? 'subscribe_panel--modal' : ''} ${
+        isOnboarding ? 'subscribe_panel--onboarding' : ''
+      }`}
+    >
       <div className="panel_header">
         <div className="subscribe_heading">
-          <h2>{isEditing ? 'Edit subscription' : isModal ? 'New subscription' : 'Subscribe'}</h2>
+          <h2>
+            {isEditing
+              ? 'Edit subscription'
+              : isModal
+                ? 'New subscription'
+                : isOnboarding
+                  ? 'Create your first subscription'
+                  : 'Subscribe'}
+          </h2>
           {!isModal ? (
-            <p>Create a new subscription and choose how payloads should decode.</p>
+            <p>
+              {isOnboarding
+                ? 'Choose which keys to watch and how Carto should decode their payloads.'
+                : 'Create a new subscription and choose how payloads should decode.'}
+            </p>
           ) : null}
         </div>
         <div className="panel_actions">
-          {!isModal ? <span className="badge badge--idle">{subscriptions.length} active</span> : null}
+          {!isModal && !isOnboarding ? (
+            <span className="badge badge--idle">{subscriptions.length} active</span>
+          ) : null}
           {onClose ? (
             <button
               className="icon-button icon-button--compact icon-button--ghost"
@@ -571,11 +593,35 @@ const SubscribePanel = ({
           </div>
         </label>
         {!isModal ? (
-          <div className="helper">Pick a recent keyexpr from the dropdown or type a new one.</div>
+          <div className="helper subscribe_key-help">
+            A key expression can target one exact key or match an entire branch with <code>**</code>.
+          </div>
+        ) : null}
+
+        {isOnboarding ? (
+          <div className="subscribe_presets" aria-label="Key expression quick starts">
+            <span>Quick starts</span>
+            <div>
+              {ONBOARDING_KEYEXPR_PRESETS.map((preset) => (
+                <button
+                  key={preset}
+                  className={`subscribe_preset ${keyexpr === preset ? 'subscribe_preset--active' : ''}`}
+                  type="button"
+                  onClick={() => {
+                    setKeyexpr(preset);
+                    setError(null);
+                  }}
+                  disabled={!connected || busy}
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
+          </div>
         ) : null}
 
         <label className="field subscribe_field">
-          <span>Buffer size</span>
+          <span>{isOnboarding ? 'Messages to keep' : 'Buffer size'}</span>
           <input
             type="number"
             min={1}
@@ -588,7 +634,7 @@ const SubscribePanel = ({
           <span className="helper">
             {editingSubscription
               ? 'Controls how many messages this subscription keeps.'
-              : 'Leave blank to use the default from Settings.'}
+              : 'Leave blank to use the buffer default from Settings.'}
           </span>
         </label>
 
@@ -637,7 +683,7 @@ const SubscribePanel = ({
                 onFocus={() => setShowProtoMenu(true)}
                 placeholder={
                   protoTypeIds.length > 0
-                    ? `${protoTypeIds.length} selected ? search to add more`
+                    ? `${protoTypeIds.length} selected — search to add more`
                     : 'Search message types'
                 }
                 disabled={protoTypes.length === 0}
@@ -722,7 +768,7 @@ const SubscribePanel = ({
               </div>
             ) : null}
             <span className="helper">
-              Search and click to toggle types ? pick as many as you need. Selected types appear
+              Search and click to toggle types — pick as many as you need. Selected types appear
               below; remove any with the X.
             </span>
           </label>
@@ -731,7 +777,7 @@ const SubscribePanel = ({
 
       <div className="panel_actions subscribe_actions">
         <button
-          className={`button ${isModal ? 'subscribe_submit' : ''}`}
+          className={`button ${isModal || isOnboarding ? 'subscribe_submit' : ''}`}
           onClick={handleSubscribe}
           disabled={
             !connected ||
@@ -741,7 +787,14 @@ const SubscribePanel = ({
             (decoderMode === 'protobuf' && protoTypeIds.length === 0)
           }
         >
-          {isEditing ? 'Save changes' : isModal ? 'Subscribe' : (
+          {isEditing ? 'Save changes' : isModal ? 'Subscribe' : isOnboarding ? (
+            <>
+              <span className="button_icon" aria-hidden="true">
+                <IconPlus />
+              </span>{' '}
+              Start monitoring
+            </>
+          ) : (
             <>
               <span className="button_icon" aria-hidden="true">
                 <IconPlus />
@@ -752,7 +805,7 @@ const SubscribePanel = ({
       </div>
       {displayError ? <div className="panel_error">{displayError}</div> : null}
 
-      {!isModal ? (
+      {!isModal && !isOnboarding ? (
         <div className="list">
           {subscriptions.length === 0 ? (
             <div className="empty">No active subscriptions yet.</div>

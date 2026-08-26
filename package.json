@@ -1,6 +1,6 @@
 {
   "name": "carto",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "private": true,
   "description": "Carto is a web-first app for inspecting Zenoh traffic.",
   "author": "Derek Diaz <derek.diaz@proton.me>",
@@ -22,6 +22,9 @@
     "dist:win": "npm run build:desktop && electron-builder --win",
     "preview": "electron-vite preview",
     "load:test": "node node_modules/tsx/dist/cli.mjs scripts/zenoh_load_test.ts",
+    "scenario:run": "node node_modules/tsx/dist/cli.mjs scripts/zenoh_scenarios.ts",
+    "scenario:once": "npm run scenario:run -- --once",
+    "scenario:list": "npm run scenario:run -- --list",
     "start:web": "node dist/server/apps/server/src/server.js",
     "start:web:bun": "bun apps/server/src/server.ts",
     "lint": "eslint . --ext .ts,.tsx",
@@ -31,33 +34,40 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@eclipse-zenoh/zenoh-ts": "latest",
-    "protobufjs": "^8.0.3",
-    "react": "^19.2.5",
-    "react-dom": "^19.2.5",
+    "@eclipse-zenoh/zenoh-ts": "^1.10.0",
+    "protobufjs": "^8.7.2",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "react-virtualized-auto-sizer": "^2.0.3",
-    "react-window": "^2.2.7",
-    "ws": "^8.20.0"
+    "react-window": "^2.3.0",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
-    "@types/node": "^25.6.0",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
+    "@types/node": "^26.3.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
     "@types/ws": "^8.18.1",
-    "@typescript-eslint/eslint-plugin": "^8.58.2",
-    "@typescript-eslint/parser": "^8.58.2",
+    "@typescript-eslint/eslint-plugin": "^8.68.0",
+    "@typescript-eslint/parser": "^8.68.0",
     "@vitejs/plugin-react": "^5.2.0",
-    "electron": "^41.2.1",
-    "electron-builder": "^26.8.1",
+    "electron": "^44.0.0",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
-    "eslint": "^9.10.0",
+    "eslint": "^9.39.5",
     "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-react": "^7.35.0",
+    "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "prettier": "^3.8.3",
-    "tsx": "^4.16.2",
+    "prettier": "^3.9.6",
+    "tsx": "^4.23.12",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.4"
+    "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "@eclipse-zenoh/zenoh-ts": {
+      "uuid": "11.1.1"
+    },
+    "brace-expansion": "1.1.18",
+    "js-yaml": "4.3.1"
   },
   "build": {
     "appId": "com.carto.app",
@@ -104,5 +114,10 @@
         "releaseType": "release"
       }
     ]
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true,
+    "electron-winstaller@5.4.0": true
   }
 }

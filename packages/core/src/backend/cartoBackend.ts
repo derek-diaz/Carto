@@ -55,7 +55,7 @@ const AUTO_RECONNECT_DEFAULT: ReconnectConfig = {
 
 const DETAIL_DECODE_WORKER_SOURCE = `
 const { parentPort } = require('node:worker_threads');
-const textDecoder = new TextDecoder();
+const textDecoder = new TextDecoder('utf-8', { fatal: true });
 
 const isMostlyPrintable = (value) => {
   if (value.length === 0) return true;
@@ -149,6 +149,7 @@ type SubscriptionState = {
   detailPayloads: Map<string, Uint8Array>;
   detailOrder: string[];
   detailBytes: number;
+  pausedMessages: CartoMessage[];
 };
 
 type QueryableState = {
@@ -182,7 +183,12 @@ export type CartoBackend = {
   getRecentKeys: (filter?: string, subscriptionId?: string) => RecentKeyStats[];
 };
 
-export const createCartoBackend = (): CartoBackend => {
+export type CartoBackendOptions = {
+  createDriver?: () => ZenohDriver;
+};
+
+export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBackend => {
+  const createDriver = options.createDriver ?? createRemoteApiWsDriver;
   let driver: ZenohDriver | null = null;
   let eventSink: CartoEventSink | null = null;
   const subscriptions = new Map<string, SubscriptionState>();
@@ -422,9 +428,15 @@ export const createCartoBackend = (): CartoBackend => {
     state.recentKeys.update(cartoMsg.key, cartoMsg.sizeBytes, cartoMsg.ts);
     recentKeys.update(cartoMsg.key, cartoMsg.sizeBytes, cartoMsg.ts);
 
-    if (!state.paused) {
-      enqueueRendererMessage(subscriptionId, cartoMsg, state.bufferSize);
+    if (state.paused) {
+      state.pausedMessages.push(cartoMsg);
+      if (state.pausedMessages.length > state.bufferSize) {
+        state.pausedMessages.splice(0, state.pausedMessages.length - state.bufferSize);
+      }
+      return;
     }
+
+    enqueueRendererMessage(subscriptionId, cartoMsg, state.bufferSize);
   };
 
   const setEventSink = (nextEventSink: CartoEventSink | null): void => {
@@ -613,6 +625,7 @@ export const createCartoBackend = (): CartoBackend => {
     state.detailPayloads.clear();
     state.detailOrder = [];
     state.detailBytes = 0;
+    state.pausedMessages = [];
     rendererQueue.delete(state.id);
   };
 
@@ -732,7 +745,7 @@ export const createCartoBackend = (): CartoBackend => {
       capabilities: capabilities ?? undefined
     });
 
-    const driverInstance = createRemoteApiWsDriver();
+    const driverInstance = createDriver();
 
     try {
       const caps = await driverInstance.connect({
@@ -784,7 +797,7 @@ export const createCartoBackend = (): CartoBackend => {
   const testConnection = async (params: ConnectionTestParams): Promise<ConnectionTestResult> => {
     const startedAt = Date.now();
     const previousOptions = getGlobalWsOptions();
-    const driverInstance = createRemoteApiWsDriver();
+    const driverInstance = createDriver();
     const timeoutMs =
       typeof params.timeoutMs === 'number' && Number.isFinite(params.timeoutMs)
         ? params.timeoutMs
@@ -904,7 +917,8 @@ export const createCartoBackend = (): CartoBackend => {
       recentKeys: createRecentKeysIndex(),
       detailPayloads: new Map<string, Uint8Array>(),
       detailOrder: [],
-      detailBytes: 0
+      detailBytes: 0,
+      pausedMessages: []
     };
     subscriptions.set(subscriptionId, state);
 
@@ -938,17 +952,20 @@ export const createCartoBackend = (): CartoBackend => {
       throw new Error(keyexprError);
     }
 
+    const previousBufferSize = state.bufferSize;
     const nextBufferSize =
       bufferSize === undefined ? state.bufferSize : normalizeSubscriptionBufferSize(bufferSize);
     state.bufferSize = nextBufferSize;
     state.buffer.setMaxSize(nextBufferSize);
+    if (state.pausedMessages.length > nextBufferSize) {
+      state.pausedMessages.splice(0, state.pausedMessages.length - nextBufferSize);
+    }
 
     if (trimmedKeyexpr === state.keyexpr) {
       return;
     }
 
     const previousKeyexpr = state.keyexpr;
-    const previousBufferSize = state.bufferSize;
     try {
       await driver.unsubscribe(subscriptionId);
     } catch (error) {
@@ -1003,8 +1020,20 @@ export const createCartoBackend = (): CartoBackend => {
   const pause = async (subscriptionId: string, paused: boolean): Promise<void> => {
     const state = subscriptions.get(subscriptionId);
     if (!state) return;
+    if (state.paused === paused) return;
     state.paused = paused;
     await driver?.pause?.(subscriptionId, paused);
+
+    if (!paused && state.pausedMessages.length > 0) {
+      const queued = state.pausedMessages;
+      state.pausedMessages = [];
+      for (let index = 0; index < queued.length; index += MAX_RENDER_QUEUE_MESSAGES_PER_SUB) {
+        eventSink?.sendMessage({
+          subscriptionId,
+          msgs: queued.slice(index, index + MAX_RENDER_QUEUE_MESSAGES_PER_SUB)
+        });
+      }
+    }
   };
 
   const clearBuffer = async (subscriptionId: string): Promise<void> => {
@@ -1014,6 +1043,7 @@ export const createCartoBackend = (): CartoBackend => {
     state.detailPayloads.clear();
     state.detailOrder = [];
     state.detailBytes = 0;
+    state.pausedMessages = [];
     rendererQueue.delete(subscriptionId);
   };
 
@@ -1184,7 +1214,7 @@ type DecodedPayloadDetail = {
   base64?: string;
 };
 
-const textDecoder = new TextDecoder();
+const textDecoder = new TextDecoder('utf-8', { fatal: true });
 const textEncoder = new TextEncoder();
 const toBase64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64');
 const clampText = (value: string, maxChars: number): string =>

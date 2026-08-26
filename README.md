@@ -32,6 +32,7 @@ The name "Carto" comes from "cartografo" (Spanish for mapmaker).
 - [Zenoh Router Docker](#zenoh-router-docker)
 - [Development](#development)
 - [Load Testing](#load-testing)
+- [Scenario Pack](#scenario-pack)
 - [Packaging](#packaging)
 - [Roadmap](#roadmap)
 - [Keywords](#keywords)
@@ -39,14 +40,14 @@ The name "Carto" comes from "cartografo" (Spanish for mapmaker).
 ## Features
 
 - Live Zenoh stream monitoring by key expression
-- Multi-subscription workflow with pause, clear, and unsubscribe controls
+- Multi-subscription workflow with lossless pause/resume, clear, and unsubscribe controls
 - Stream filtering by key and message content
 - Message drawer with decoded views for JSON, text, and binary payloads
 - Protobuf schema loading and Protobuf decode support in stream view
 - Publish messages with `json`, `text`, `base64`, and `protobuf` modes
 - Recent key explorer and key-expression history for subscribe/publish flows
 - Connection status, logs, and app-level diagnostics
-- Settings import/export for sharing local profiles and schema setup
+- Settings import/export for sharing connection profiles and schema setup
 - Light and dark themes for long monitoring sessions
 
 ## Screenshots
@@ -98,7 +99,7 @@ docker pull tabierto/carto:latest
 Run it:
 
 ```bash
-docker run --rm -p 8080:8080 tabierto/carto
+docker run --rm -p 127.0.0.1:8080:8080 tabierto/carto
 ```
 
 Then open:
@@ -113,6 +114,8 @@ ws://127.0.0.1:10000/
 ```
 
 Carto rewrites loopback addresses inside the container to the Docker host automatically. Direct non-loopback IPs also work as long as they are reachable from the container network.
+
+Carto's web server is intentionally single-user and binds to loopback by default. Do not expose it directly to an untrusted network: the server can connect to endpoints and read configured TLS files on the host. If remote access is required, put Carto behind an authenticated reverse proxy and explicitly set `HOST` plus `CARTO_ALLOW_REMOTE=1`.
 
 ## Zenoh Router Docker
 
@@ -192,6 +195,47 @@ Useful flags:
 - `--format json|text` to switch payload shape
 - `--count` to control total messages
 - `--burst` and `--pause-ms` to shape the send rate
+
+## Scenario Pack
+
+Carto includes a repeatable Zenoh demo covering steady JSON telemetry, structured events,
+plain text, opaque binary payloads, two Protobuf message types, concurrent bursts, large JSON
+snapshots, and put/delete lifecycle traffic.
+
+1. In Carto, open **Settings → General → Import settings** and select
+   [`examples/carto-zenoh-scenarios.json`](examples/carto-zenoh-scenarios.json). Leave
+   **Merge with existing settings** enabled to preserve your current configuration.
+2. Connect with the imported **Local scenario router** profile.
+3. Subscribe to `carto/demo/**` for the complete stream, or select one of the imported focused
+   key expressions. Use `carto/demo/protobuf/**` to exercise the preconfigured multi-type
+   Protobuf decoder.
+4. Run the complete pack continuously, stopping it with `Ctrl+C`:
+
+```bash
+npm run scenario:run
+```
+
+The same JSON file is both the Carto settings import and the scenario runner's manifest, so its
+topics, schemas, and sample publisher drafts stay aligned with what the script sends.
+
+Useful variants:
+
+```bash
+# See every scenario and topic without connecting.
+npm run scenario:list
+
+# Run only selected scenarios.
+npm run scenario:run -- --scenario telemetry-json,protobuf-telemetry
+
+# Run one cycle and exit.
+npm run scenario:once
+
+# Repeat a burst three times with no intentional delay, then exit.
+npm run scenario:run -- --scenario burst --cycles 3 --pace 0
+
+# Use another endpoint or a compatible scenario/settings pack.
+npm run scenario:run -- --endpoint ws://192.168.1.20:10000/ --pack ./my-pack.json
+```
 
 ## Packaging
 

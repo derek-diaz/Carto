@@ -1,12 +1,7 @@
 import type { ConnectionHealth } from '@shared/types';
 import type { Subscription } from '../store/useCarto';
-import {
-  IconCopy,
-  IconLinkOff,
-  IconPause,
-  IconPlay,
-  IconTrash
-} from './Icons';
+import type { AppView } from '../types/navigation';
+import { IconCopy, IconLinkOff, IconPause, IconPlay, IconTrash } from './Icons';
 
 type ActionNotice = {
   type: 'ok' | 'error';
@@ -24,7 +19,7 @@ type AppHeaderProps = {
   copied: boolean;
   lastEndpoint: string;
   onCopyEndpoint: () => Promise<void>;
-  view: 'monitor' | 'publish' | 'connection' | 'logs' | 'settings';
+  view: AppView;
   selectedSub?: Subscription;
   onTogglePause: () => Promise<void>;
   onClearBuffer: () => Promise<void>;
@@ -102,7 +97,7 @@ const AppHeader = ({
       </div>
       <div className="app_header-right">
         <div className={`status ${statusClass}`} title={statusDetail || undefined}>
-          <span className={`dot ${dotClass}`} />{' '}<span>{statusLabel}</span>
+          <span className={`dot ${dotClass}`} /> <span>{statusLabel}</span>
         </div>
         <div className="header-endpoint" title={endpointTitle}>
           <span className="header-endpoint_label">
@@ -144,7 +139,8 @@ const AppHeader = ({
               >
                 <span className="button_icon" aria-hidden="true">
                   <IconTrash />
-                </span>{' '}Clear buffer
+                </span>{' '}
+                Clear buffer
               </button>
             </>
           ) : null}
@@ -157,7 +153,8 @@ const AppHeader = ({
             >
               <span className="button_icon" aria-hidden="true">
                 <IconLinkOff />
-              </span>{' '}Disconnect
+              </span>{' '}
+              Disconnect
             </button>
           ) : null}
           {actionNotice ? (
@@ -172,4 +169,3 @@ const AppHeader = ({
 };
 
 export default AppHeader;
-

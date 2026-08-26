@@ -45,6 +45,7 @@ const SettingsView = ({
   const [subscribeHistory, setSubscribeHistory] = useState<string[]>([]);
   const [publishHistory, setPublishHistory] = useState<string[]>([]);
   const [mergeImport, setMergeImport] = useState(true);
+  const [section, setSection] = useState<'general' | 'protobuf'>('general');
 
   const readHistory = useCallback((key: string) => {
     if (typeof globalThis === 'undefined' || !('localStorage' in globalThis)) return [];
@@ -245,10 +246,31 @@ const SettingsView = ({
   return (
     <div className="app_content app_content--single settings_shell">
       <main className="settings_workspace">
+        <nav className="settings_nav" aria-label="Settings sections">
+          <button
+            className={`settings_nav-button ${section === 'general' ? 'settings_nav-button--active' : ''}`}
+            type="button"
+            aria-current={section === 'general' ? 'page' : undefined}
+            onClick={() => setSection('general')}
+          >
+            <span>General</span>
+            <small>Defaults, backup, and history</small>
+          </button>
+          <button
+            className={`settings_nav-button ${section === 'protobuf' ? 'settings_nav-button--active' : ''}`}
+            type="button"
+            aria-current={section === 'protobuf' ? 'page' : undefined}
+            onClick={() => setSection('protobuf')}
+          >
+            <span>Protobuf schemas</span>
+            <small>{schemas.length === 0 ? 'Add your first schema' : `${schemas.length} loaded`}</small>
+          </button>
+        </nav>
         <section className="settings_stage">
-          <div className="settings_stage-body">
-            <div className="settings_stage-main">
-              <section className="settings_block">
+          <div className={`settings_stage-body settings_stage-body--${section}`}>
+            {section === 'general' ? (
+              <div className="settings_stage-main">
+                <section className="settings_block">
                 <div className="settings_block-head">
                   <h2>Defaults</h2>
                 </div>
@@ -274,9 +296,9 @@ const SettingsView = ({
                   Applies to new subscriptions only. Existing streams keep their current buffer.
                 </span>
                 {error ? <div className="notice notice--error">{error}</div> : null}
-              </section>
+                </section>
 
-              <section className="settings_block">
+                <section className="settings_block">
                 <div className="settings_block-head">
                   <h2>Import / Export</h2>
                 </div>
@@ -322,9 +344,9 @@ const SettingsView = ({
                     </label>
                   </div>
                 </div>
-              </section>
+                </section>
 
-              <section className="settings_block settings_block--history">
+                <section className="settings_block settings_block--history">
                 <div className="settings_block-head">
                   <h2>History</h2>
                 </div>
@@ -408,18 +430,19 @@ const SettingsView = ({
                     )}
                   </div>
                 </div>
-              </section>
-            </div>
-
-            <ProtoPanel
-              className="settings_proto"
-              schemas={schemas}
-              onAddSchema={onAddSchema}
-              onRemoveSchema={onRemoveSchema}
-              onLog={onLog}
-              onToast={onToast}
-              showCountBadge={false}
-            />
+                </section>
+              </div>
+            ) : (
+              <ProtoPanel
+                className="settings_proto"
+                schemas={schemas}
+                onAddSchema={onAddSchema}
+                onRemoveSchema={onRemoveSchema}
+                onLog={onLog}
+                onToast={onToast}
+                showCountBadge
+              />
+            )}
           </div>
         </section>
       </main>

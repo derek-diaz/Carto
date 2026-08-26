@@ -21,6 +21,16 @@ export type Subscription = {
 
 const DEFAULT_BUFFER = 200;
 const RENDER_FLUSH_INTERVAL_MS = 16;
+const LAST_ENDPOINT_STORAGE_KEY = 'carto.lastEndpoint';
+
+const readLastEndpoint = () => {
+  if (typeof window === 'undefined') return '';
+  try {
+    return window.localStorage.getItem(LAST_ENDPOINT_STORAGE_KEY) ?? '';
+  } catch {
+    return '';
+  }
+};
 
 const appendBatchToBuffer = (
   buffer: CartoMessage[],
@@ -53,7 +63,7 @@ export const useCarto = () => {
   const [selectedRecentKeys, setSelectedRecentKeys] = useState<RecentKeyStats[]>([]);
   const [queryables, setQueryables] = useState<QueryableInfo[]>([]);
   const [recentKeysFilter, setRecentKeysFilter] = useState('');
-  const [lastEndpoint, setLastEndpoint] = useState('');
+  const [lastEndpoint, setLastEndpoint] = useState(readLastEndpoint);
 
   const subscriptionsByIdRef = useRef<Map<string, Subscription>>(new Map());
   const messagesBySubRef = useRef<Record<string, CartoMessage[]>>({});
@@ -251,6 +261,11 @@ export const useCarto = () => {
     resetLocalState();
     await carto.connect({ ...params, mode: 'client' });
     setLastEndpoint(params.endpoint);
+    try {
+      window.localStorage.setItem(LAST_ENDPOINT_STORAGE_KEY, params.endpoint);
+    } catch {
+      // Storage can be unavailable in hardened or private browser contexts.
+    }
   }, [resetLocalState]);
 
   const testConnection = useCallback(

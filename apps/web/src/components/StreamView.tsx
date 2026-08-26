@@ -9,7 +9,7 @@ import { highlightJson } from '../utils/jsonSyntax';
 import { IconClose, IconFollow, IconLatest, IconSearch } from './Icons';
 import type { DecoderConfig } from '../utils/proto';
 
-const ROW_HEIGHT = 46;
+const ROW_HEIGHT = 50;
 const MAX_PROTO_PREVIEW_IN_FLIGHT = 2;
 const PROTO_PREVIEW_PENDING_TEXT = '[protobuf decoding?]';
 const PROTO_PREVIEW_UNAVAILABLE_TEXT = '[protobuf unavailable]';
@@ -51,7 +51,7 @@ const StreamView = ({
   const listRef = useRef<ListImperativeAPI | null>(null);
   const [followLatest, setFollowLatest] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [highlightMatches, setHighlightMatches] = useState(true);
+  const highlightMatches = true;
   const [decodedPreviewById, setDecodedPreviewById] = useState<Record<string, string>>({});
   const decodeQueueRef = useRef<CartoMessage[]>([]);
   const decodePendingRef = useRef<Set<string>>(new Set());
@@ -319,8 +319,7 @@ const Row = ({
     msg.id,
     preview,
     searchQuery,
-    highlightMatches,
-    decodedPreviewById[msg.id]
+    highlightMatches
   );
   return (
     <button
@@ -343,14 +342,19 @@ const getPayloadNode = (
   messageId: string,
   preview: string,
   query: string,
-  highlightMatches: boolean,
-  decodedPreview?: string
+  highlightMatches: boolean
 ) => {
-  if (decodedPreview && isJsonLikePreview(decodedPreview) && !(query && highlightMatches)) {
+  if (shouldHighlightJsonPreview(preview, query, highlightMatches)) {
     return highlightJson(preview, `${messageId}-`);
   }
   return highlightText(preview, query, highlightMatches);
 };
+
+export const shouldHighlightJsonPreview = (
+  preview: string,
+  query: string,
+  highlightMatches: boolean
+): boolean => isJsonLikePreview(preview) && !(query && highlightMatches);
 
 const isJsonLikePreview = (value: string): boolean => {
   const trimmed = value.trim();

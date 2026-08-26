@@ -3,13 +3,14 @@ import * as protobuf from 'protobufjs';
 import type { CartoMessage, ConnectionStatus } from '@shared/types';
 import AppHeader from './components/AppHeader';
 import AppRail from './components/AppRail';
-import AboutDialog from './components/AboutDialog';
+import AboutView from './components/AboutView';
 import ConnectionView from './components/ConnectionView';
 import LogsView from './components/LogsView';
 import MonitorView from './components/MonitorView';
 import PublishView from './components/PublishView';
 import SettingsView from './components/SettingsView';
 import ToastStack from './components/ToastStack';
+import UpdateBanner from './components/UpdateBanner';
 import {
   DEFAULT_PUBLISH_JSON,
   DEFAULT_PUBLISH_KEYEXPR,
@@ -31,6 +32,8 @@ import {
   type ProtoTypeOption
 } from './utils/proto';
 import { base64ToBytes, bytesToBase64 } from './utils/base64';
+import { useReleaseCheck } from './hooks/useReleaseCheck';
+import type { AppView } from './types/navigation';
 import pkg from '../../../package.json';
 
 const MAX_LOGS = 200;
@@ -50,12 +53,14 @@ const DEFAULT_RING_BUFFER = 200;
 const MIN_RING_BUFFER = 10;
 const MAX_RING_BUFFER = 5000;
 const MAX_PROTO_TABLE_PREVIEW_CHARS = 220;
+const DISMISSED_RELEASE_KEY = 'carto.dismissedRelease';
 
 const appInfo = pkg as {
   name?: string;
   version?: string;
   description?: string;
   author?: string;
+  license?: string;
   build?: { productName?: string };
 };
 
@@ -94,7 +99,10 @@ const toProtoTablePreview = (value: unknown): string => {
     try {
       formatted = JSON.stringify(value);
     } catch {
-      const head = value.slice(0, 4).map((entry) => formatProtoPreviewAtom(entry)).join(', ');
+      const head = value
+        .slice(0, 4)
+        .map((entry) => formatProtoPreviewAtom(entry))
+        .join(', ');
       formatted = `[${head}${value.length > 4 ? ', ...' : ''}]`;
     }
   } else if (typeof value === 'object') {
@@ -126,7 +134,8 @@ const getProtoKeyAffinity = (handle: ProtoTypeHandle, key: string): number => {
     .map((segment) => normalizeProtoHint(segment))
     .filter(Boolean);
   if (segments.some((segment) => segment === typeName)) return 4;
-  if (segments.some((segment) => typeName.includes(segment) || segment.includes(typeName))) return 2;
+  if (segments.some((segment) => typeName.includes(segment) || segment.includes(typeName)))
+    return 2;
   return 0;
 };
 
@@ -184,6 +193,12 @@ const rewriteDecoderTypeIds = (
 };
 
 const App = () => {
+  const currentVersion = appInfo.version ?? '0.0.0';
+  const { state: releaseState, checkNow: checkForUpdates } = useReleaseCheck(currentVersion);
+  const [dismissedRelease, setDismissedRelease] = useState(() => {
+    if (typeof globalThis === 'undefined' || !('localStorage' in globalThis)) return '';
+    return globalThis.localStorage.getItem(DISMISSED_RELEASE_KEY) ?? '';
+  });
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     if (typeof globalThis === 'undefined' || !('localStorage' in globalThis)) return 'light';
     const stored = globalThis.localStorage.getItem('carto.theme');
@@ -250,11 +265,13 @@ const App = () => {
     message: string;
   } | null>(null);
   const [showSubscribe, setShowSubscribe] = useState(false);
-  const [showAbout, setShowAbout] = useState(false);
 
   useEffect(() => {
     if (typeof performance === 'undefined') return;
-    if (typeof performance.clearMeasures !== 'function' || typeof performance.clearMarks !== 'function') {
+    if (
+      typeof performance.clearMeasures !== 'function' ||
+      typeof performance.clearMarks !== 'function'
+    ) {
       return;
     }
     const timer = globalThis.setInterval(() => {
@@ -318,7 +335,7 @@ const App = () => {
     return protoSchemas.flatMap((schema) =>
       schema.types.map((type) => ({
         ...type,
-        label: `${schema.name} ? ${type.name}`,
+        label: `${schema.name} · ${type.name}`,
         schemaName: schema.name
       }))
     );
@@ -577,9 +594,7 @@ const App = () => {
     [decodeProtobuf, getMessage, selectedDecoder, selectedSubId]
   );
   const activeKeys = recentKeys;
-  const [view, setView] = useState<'monitor' | 'publish' | 'connection' | 'logs' | 'settings'>(
-    status.connected ? 'monitor' : 'connection'
-  );
+  const [view, setView] = useState<AppView>(status.connected ? 'monitor' : 'connection');
   const [monitorTab, setMonitorTab] = useState<'stream' | 'keys'>('stream');
 
   useEffect(() => {
@@ -589,7 +604,8 @@ const App = () => {
       !status.connected &&
       status.health?.state === 'disconnected' &&
       view !== 'logs' &&
-      view !== 'settings'
+      view !== 'settings' &&
+      view !== 'about'
     ) {
       setView('connection');
       return;
@@ -826,9 +842,14 @@ const App = () => {
       if (histories && typeof histories === 'object') {
         const record = histories as Record<string, unknown>;
         if (Array.isArray(record.subscribe)) {
-          const nextEntries = record.subscribe.filter((entry) => typeof entry === 'string') as string[];
+          const nextEntries = record.subscribe.filter(
+            (entry) => typeof entry === 'string'
+          ) as string[];
           if ('localStorage' in globalThis) {
-            const current = mode === 'merge' ? readStringArray(globalThis.localStorage.getItem(SUBSCRIBE_HISTORY_KEY)) : [];
+            const current =
+              mode === 'merge'
+                ? readStringArray(globalThis.localStorage.getItem(SUBSCRIBE_HISTORY_KEY))
+                : [];
             const merged = mode === 'merge' ? mergeStringArrays(nextEntries, current) : nextEntries;
             globalThis.localStorage.setItem(SUBSCRIBE_HISTORY_KEY, JSON.stringify(merged));
           }
@@ -838,17 +859,21 @@ const App = () => {
         }
         if (record.subscribeDetails && typeof record.subscribeDetails === 'object') {
           const next: Record<string, DecoderConfig> = {};
-          Object.entries(record.subscribeDetails as Record<string, unknown>).forEach(([key, value]) => {
-            const decoder = parseDecoderConfig(
-              value && typeof value === 'object' && 'decoder' in value
-                ? (value as { decoder?: unknown }).decoder
-                : value
-            );
-            if (decoder) next[key] = rewriteDecoderTypeIds(decoder, typeIdRewrites);
-          });
+          Object.entries(record.subscribeDetails as Record<string, unknown>).forEach(
+            ([key, value]) => {
+              const decoder = parseDecoderConfig(
+                value && typeof value === 'object' && 'decoder' in value
+                  ? (value as { decoder?: unknown }).decoder
+                  : value
+              );
+              if (decoder) next[key] = rewriteDecoderTypeIds(decoder, typeIdRewrites);
+            }
+          );
           if ('localStorage' in globalThis) {
             if (mode === 'merge') {
-              const current = readDecoderDetails(globalThis.localStorage.getItem(SUBSCRIBE_DETAILS_KEY));
+              const current = readDecoderDetails(
+                globalThis.localStorage.getItem(SUBSCRIBE_DETAILS_KEY)
+              );
               const merged = { ...next, ...current };
               globalThis.localStorage.setItem(SUBSCRIBE_DETAILS_KEY, JSON.stringify(merged));
             } else {
@@ -860,9 +885,14 @@ const App = () => {
           }
         }
         if (Array.isArray(record.publish)) {
-          const nextEntries = record.publish.filter((entry) => typeof entry === 'string') as string[];
+          const nextEntries = record.publish.filter(
+            (entry) => typeof entry === 'string'
+          ) as string[];
           if ('localStorage' in globalThis) {
-            const current = mode === 'merge' ? readStringArray(globalThis.localStorage.getItem(PUBLISH_HISTORY_KEY)) : [];
+            const current =
+              mode === 'merge'
+                ? readStringArray(globalThis.localStorage.getItem(PUBLISH_HISTORY_KEY))
+                : [];
             const merged = mode === 'merge' ? mergeStringArrays(nextEntries, current) : nextEntries;
             globalThis.localStorage.setItem(PUBLISH_HISTORY_KEY, JSON.stringify(merged));
           }
@@ -872,19 +902,21 @@ const App = () => {
         }
         if (record.publishDetails && typeof record.publishDetails === 'object') {
           const next: Record<string, PublishDraft> = {};
-          Object.entries(record.publishDetails as Record<string, unknown>).forEach(([key, value]) => {
-            if (!value || typeof value !== 'object') return;
-            const entry = value as PublishDraft;
-            if (typeof entry.encoding !== 'string' || typeof entry.payload !== 'string') return;
-            next[key] = {
-              keyexpr: key,
-              encoding: entry.encoding,
-              payload: entry.payload,
-              protoTypeId: entry.protoTypeId
-                ? typeIdRewrites.get(entry.protoTypeId) ?? entry.protoTypeId
-                : undefined
-            };
-          });
+          Object.entries(record.publishDetails as Record<string, unknown>).forEach(
+            ([key, value]) => {
+              if (!value || typeof value !== 'object') return;
+              const entry = value as PublishDraft;
+              if (typeof entry.encoding !== 'string' || typeof entry.payload !== 'string') return;
+              next[key] = {
+                keyexpr: key,
+                encoding: entry.encoding,
+                payload: entry.payload,
+                protoTypeId: entry.protoTypeId
+                  ? (typeIdRewrites.get(entry.protoTypeId) ?? entry.protoTypeId)
+                  : undefined
+              };
+            }
+          );
           if ('localStorage' in globalThis) {
             if (mode === 'merge') {
               const currentRaw = globalThis.localStorage.getItem(PUBLISH_DETAILS_KEY);
@@ -933,7 +965,11 @@ const App = () => {
               }
             });
             (data.connectionProfiles as unknown[]).forEach((entry) => {
-              if (entry && typeof entry === 'object' && typeof (entry as { id?: string }).id === 'string') {
+              if (
+                entry &&
+                typeof entry === 'object' &&
+                typeof (entry as { id?: string }).id === 'string'
+              ) {
                 const id = (entry as { id: string }).id;
                 if (!byId.has(id)) {
                   byId.set(id, entry);
@@ -1014,6 +1050,8 @@ const App = () => {
         return 'Logs';
       case 'settings':
         return 'Settings';
+      case 'about':
+        return 'About';
       default:
         return 'Connection';
     }
@@ -1036,7 +1074,10 @@ const App = () => {
       return 'Connection events and errors.';
     }
     if (view === 'settings') {
-      return 'Defaults for new subscriptions.';
+      return 'Manage defaults, history, backups, and schemas.';
+    }
+    if (view === 'about') {
+      return 'Version, project information, and updates.';
     }
     return status.connected ? 'Connected to the router.' : 'Configure and connect to a router.';
   }, [publishSupport, status.connected, view]);
@@ -1281,6 +1322,11 @@ const App = () => {
         setView('settings');
         return;
       }
+      if (event.code === 'Digit6') {
+        event.preventDefault();
+        setView('about');
+        return;
+      }
 
       const key = event.key.toLowerCase();
       if (event.shiftKey && key === 'l') {
@@ -1324,6 +1370,18 @@ const App = () => {
     view
   ]);
 
+  const availableRelease =
+    releaseState.comparison === 'available' ? releaseState.release : undefined;
+  const showUpdateBanner =
+    availableRelease !== undefined && availableRelease.tagName !== dismissedRelease;
+  const dismissUpdate = useCallback(() => {
+    if (!availableRelease) return;
+    setDismissedRelease(availableRelease.tagName);
+    if ('localStorage' in globalThis) {
+      globalThis.localStorage.setItem(DISMISSED_RELEASE_KEY, availableRelease.tagName);
+    }
+  }, [availableRelease]);
+
   return (
     <div className="app">
       <div className="app_frame">
@@ -1331,9 +1389,9 @@ const App = () => {
           theme={theme}
           view={view}
           connected={status.connected}
+          updateAvailable={availableRelease !== undefined}
           onSetView={setView}
           onToggleTheme={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
-          onShowAbout={() => setShowAbout(true)}
         />
 
         <div className="app_shell">
@@ -1355,6 +1413,14 @@ const App = () => {
             actionNotice={actionNotice}
             onDisconnect={handleDisconnect}
           />
+
+          {showUpdateBanner ? (
+            <UpdateBanner
+              release={availableRelease}
+              onShowAbout={() => setView('about')}
+              onDismiss={dismissUpdate}
+            />
+          ) : null}
 
           <div className="app_body">
             {view === 'monitor' ? (
@@ -1421,7 +1487,6 @@ const App = () => {
                 defaultEndpoint={lastEndpoint || undefined}
                 onConnect={connect}
                 onTestConnection={testConnection}
-                onDisconnect={handleDisconnect}
                 onLog={addLog}
                 onToast={addToast}
               />
@@ -1444,17 +1509,21 @@ const App = () => {
             ) : null}
 
             {view === 'logs' ? <LogsView logs={logs} onClearLogs={clearLogs} /> : null}
+
+            {view === 'about' ? (
+              <AboutView
+                appName={appInfo.build?.productName ?? appInfo.name ?? 'Carto'}
+                version={currentVersion}
+                description={appInfo.description}
+                author={appInfo.author}
+                license={appInfo.license}
+                releaseState={releaseState}
+                onCheckForUpdates={checkForUpdates}
+              />
+            ) : null}
           </div>
         </div>
       </div>
-      <AboutDialog
-        open={showAbout}
-        appName={appInfo.build?.productName ?? appInfo.name ?? 'Carto'}
-        version={appInfo.version ?? '0.0.0'}
-        description={appInfo.description}
-        author={appInfo.author}
-        onClose={() => setShowAbout(false)}
-      />
       {toasts.length > 0 ? <ToastStack toasts={toasts} onDismiss={dismissToast} /> : null}
     </div>
   );

@@ -214,3 +214,28 @@ export const IconEdit = (props: SVGProps<SVGSVGElement>) => (
     <path d="M13.5 6.5l4 4" />
   </Icon>
 );
+
+export const IconInfo = (props: SVGProps<SVGSVGElement>) => (
+  <Icon {...props}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 11v6" />
+    <path d="M12 7h.01" />
+  </Icon>
+);
+
+export const IconExternalLink = (props: SVGProps<SVGSVGElement>) => (
+  <Icon {...props}>
+    <path d="M14 5h5v5" />
+    <path d="M19 5l-8 8" />
+    <path d="M19 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
+  </Icon>
+);
+
+export const IconRefresh = (props: SVGProps<SVGSVGElement>) => (
+  <Icon {...props}>
+    <path d="M20 7v5h-5" />
+    <path d="M4 17v-5h5" />
+    <path d="M6.1 9a7 7 0 0 1 11.5-2.6L20 12" />
+    <path d="M17.9 15a7 7 0 0 1-11.5 2.6L4 12" />
+  </Icon>
+);

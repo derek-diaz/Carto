@@ -16,9 +16,11 @@ type MessageInspectorProps = {
   } | null;
   subscriptionLabel?: string;
   variant?: 'side' | 'dock';
+  expanded?: boolean;
   onClose: () => void;
   onResizeStart?: PointerEventHandler<HTMLButtonElement>;
   onResizeKeyDown?: KeyboardEventHandler<HTMLButtonElement>;
+  onToggleExpanded?: () => void;
 };
 
 type TabId = 'json' | 'text' | 'base64' | 'protobuf';
@@ -28,9 +30,11 @@ const MessageInspector = ({
   protoResult,
   subscriptionLabel,
   variant = 'side',
+  expanded = false,
   onClose,
   onResizeStart,
-  onResizeKeyDown
+  onResizeKeyDown,
+  onToggleExpanded
 }: MessageInspectorProps) => {
   const [tab, setTab] = useState<TabId>('json');
   const hasBase64 = message?.base64 !== undefined;
@@ -70,9 +74,10 @@ const MessageInspector = ({
             className="monitor_inspector-resizer"
             onPointerDown={onResizeStart}
             onKeyDown={onResizeKeyDown}
+            onDoubleClick={onToggleExpanded}
             type="button"
             aria-label="Resize inspector"
-            title="Resize inspector"
+            title="Drag to resize; double-click to expand"
           />
         ) : null}
         <div className="monitor_inspector-empty">
@@ -94,9 +99,10 @@ const MessageInspector = ({
           className="monitor_inspector-resizer"
           onPointerDown={onResizeStart}
           onKeyDown={onResizeKeyDown}
+          onDoubleClick={onToggleExpanded}
           type="button"
           aria-label="Resize inspector"
-          title="Resize inspector"
+          title="Drag to resize; double-click to expand"
         />
       ) : null}
       <div className="monitor_inspector-header">
@@ -106,13 +112,24 @@ const MessageInspector = ({
           </span>
           <h3>{variant === 'dock' ? message.key : message.key}</h3>
           <p>
-            {subscriptionLabel ? `${subscriptionLabel} ? ` : ''}
+            {subscriptionLabel ? `${subscriptionLabel} · ` : ''}
             {formatTime(message.ts)}
           </p>
         </div>
         <div className="monitor_inspector-header-actions">
           {dockBadge ? (
             <span className="badge badge--ok monitor_inspector-badge">{dockBadge}</span>
+          ) : null}
+          {variant === 'dock' && onToggleExpanded ? (
+            <button
+              className="button button--ghost button--compact monitor_inspector-expand"
+              onClick={onToggleExpanded}
+              type="button"
+              aria-pressed={expanded}
+              title={expanded ? 'Restore inspector height' : 'Expand payload inspector'}
+            >
+              {expanded ? 'Restore' : 'Expand'}
+            </button>
           ) : null}
           <button
             className="icon-button icon-button--ghost icon-button--compact"
@@ -177,7 +194,7 @@ const MessageInspector = ({
               </div>
             ) : null}
             {!message.json && !message.text && !hasBase64 ? (
-              <div className="notice notice--info">Loading full payload?</div>
+              <div className="notice notice--info">Loading full payload…</div>
             ) : null}
             {tab === 'protobuf' && protoResult ? (
               protoResult.data === undefined ? (

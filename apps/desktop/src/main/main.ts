@@ -107,7 +107,7 @@ const applyCsp = (window: BrowserWindow, isDev: boolean): void => {
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' data: https://fonts.gstatic.com",
     "img-src 'self' data: blob:",
-    `connect-src 'self'${devServer} ws://127.0.0.1:10000 ws://localhost:10000 ws://127.0.0.1:7447 ws://localhost:7447 ws://127.0.0.1:8000 ws://localhost:8000`,
+    `connect-src 'self'${devServer} https://api.github.com ws://127.0.0.1:10000 ws://localhost:10000 ws://127.0.0.1:7447 ws://localhost:7447 ws://127.0.0.1:8000 ws://localhost:8000`,
     "media-src 'self'",
     "object-src 'none'"
   ].join('; ');

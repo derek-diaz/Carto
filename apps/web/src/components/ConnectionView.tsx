@@ -7,7 +7,6 @@ type ConnectionViewProps = {
   defaultEndpoint?: string;
   onConnect: (params: ConnectParams) => Promise<void>;
   onTestConnection: (params: ConnectionTestParams) => Promise<ConnectionTestResult>;
-  onDisconnect: () => Promise<void>;
   onLog: (entry: LogInput) => void;
   onToast: (toast: ToastInput) => void;
 };
@@ -17,7 +16,6 @@ const ConnectionView = ({
   defaultEndpoint,
   onConnect,
   onTestConnection,
-  onDisconnect,
   onLog,
   onToast
 }: ConnectionViewProps) => (
@@ -27,7 +25,6 @@ const ConnectionView = ({
       defaultEndpoint={defaultEndpoint}
       onConnect={onConnect}
       onTestConnection={onTestConnection}
-      onDisconnect={onDisconnect}
       onLog={onLog}
       onToast={onToast}
     />

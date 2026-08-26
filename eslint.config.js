@@ -5,7 +5,7 @@ const reactHooksPlugin = require('eslint-plugin-react-hooks');
 const prettierConfig = require('eslint-config-prettier');
 
 module.exports = [
-  { ignores: ['dist', 'node_modules'] },
+  { ignores: ['dist', 'node_modules', 'out', 'release'] },
   {
     files: ['**/*.{ts,tsx}'],
     languageOptions: {

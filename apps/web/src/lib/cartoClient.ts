@@ -4,6 +4,18 @@ import type { CartoMessagePayload, ConnectionStatus } from '@shared/types';
 type ListenerSet<T> = Set<(value: T) => void>;
 
 const EVENTS_PATH = '/api/events';
+const CLIENT_ID_HEADER = 'X-Carto-Client-Id';
+
+const createClientId = (): string => {
+  const storageKey = 'carto.web.clientId';
+  const stored = window.sessionStorage.getItem(storageKey);
+  if (stored) return stored;
+  const id =
+    globalThis.crypto?.randomUUID?.() ??
+    `carto-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  window.sessionStorage.setItem(storageKey, id);
+  return id;
+};
 
 class WebCartoClient implements CartoApi {
   private readonly messageListeners: ListenerSet<CartoMessagePayload> = new Set();
@@ -11,6 +23,7 @@ class WebCartoClient implements CartoApi {
   private socket: WebSocket | null = null;
   private reconnectTimer: number | null = null;
   private stopped = false;
+  private readonly clientId = createClientId();
 
   connect = async (params: Parameters<CartoApi['connect']>[0]): Promise<void> => {
     await this.request('/api/connect', params);
@@ -110,7 +123,7 @@ class WebCartoClient implements CartoApi {
 
   private ensureSocket(): void {
     if (this.socket || this.stopped) return;
-    const socket = new WebSocket(buildEventsUrl());
+    const socket = new WebSocket(buildEventsUrl(this.clientId));
     this.socket = socket;
 
     socket.addEventListener('message', (event) => {
@@ -123,9 +136,21 @@ class WebCartoClient implements CartoApi {
       this.messageListeners.forEach((listener) => listener(payload.data));
     });
 
-    socket.addEventListener('close', () => {
+    socket.addEventListener('close', (event) => {
       if (this.socket === socket) {
         this.socket = null;
+      }
+      if (event.code === 1008) {
+        this.stopped = true;
+        const message = event.reason || 'Carto is already active in another browser session.';
+        this.statusListeners.forEach((listener) =>
+          listener({
+            connected: false,
+            error: message,
+            health: { state: 'disconnected', lastError: message }
+          })
+        );
+        return;
       }
       if (this.stopped) return;
       this.scheduleReconnect();
@@ -148,7 +173,8 @@ class WebCartoClient implements CartoApi {
     const response = await fetch(path, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        [CLIENT_ID_HEADER]: this.clientId
       },
       body: body === undefined ? '{}' : JSON.stringify(body)
     });
@@ -190,9 +216,11 @@ const parseServerEvent = (
   return null;
 };
 
-const buildEventsUrl = (): string => {
+const buildEventsUrl = (clientId: string): string => {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}${EVENTS_PATH}`;
+  const url = new URL(`${protocol}//${window.location.host}${EVENTS_PATH}`);
+  url.searchParams.set('clientId', clientId);
+  return url.toString();
 };
 
 let cachedClient: CartoApi | null = null;

@@ -102,16 +102,19 @@ const ProtoPanel = ({
           await handleFiles(files);
         }}
       >
-        <div className="proto_drop-title">Drag and drop a .proto file</div>
-        <div className="proto_drop-subtitle">or choose a file from disk</div>
-        <input
-          type="file"
-          accept=".proto"
-          onChange={async (event) => {
-            const files = event.target.files;
-            await handleFiles(files);
-          }}
-        />
+        <div className="proto_drop-title">Drop a .proto file here</div>
+        <div className="proto_drop-subtitle">Carto will discover its message types automatically.</div>
+        <label className="button button--ghost proto_file-button">
+          Browse files
+          <input
+            type="file"
+            accept=".proto"
+            onChange={async (event) => {
+              const files = event.target.files;
+              await handleFiles(files);
+            }}
+          />
+        </label>
       </div>
 
       <label className="field">
@@ -140,7 +143,7 @@ message Ping { string id = 1; }`}
 
       <div className="panel_actions">
         <button className="button" type="button" onClick={handleAddSchema}>
-          Add schema
+          Save schema
         </button>
       </div>
 

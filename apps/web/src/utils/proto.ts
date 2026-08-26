@@ -180,7 +180,7 @@ const buildSingleValueSample = (field: protobuf.Field, seen: Set<string>): unkno
     return buildMessageSample(field.resolvedType, seen);
   }
   if (field.resolvedType instanceof protobuf.Enum) {
-    return Object.keys(field.resolvedType.values)[0] ?? 0;
+    return Object.values(field.resolvedType.values)[0] ?? 0;
   }
   return buildScalarSample(field.type);
 };
@@ -201,7 +201,7 @@ const buildScalarSample = (type: string): unknown => {
     case 'sint64':
     case 'fixed64':
     case 'sfixed64':
-      return '1';
+      return 1;
     default:
       return 1;
   }

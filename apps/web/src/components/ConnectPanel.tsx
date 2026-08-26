@@ -10,7 +10,7 @@ import type {
   TlsConfig
 } from '@shared/types';
 import type { LogInput, ToastInput } from '../utils/notifications';
-import { IconChevronDown, IconClose, IconLinkOff, IconPlug, IconSave, IconTrash } from './Icons';
+import { IconChevronDown, IconClose, IconPlug, IconSave, IconTrash } from './Icons';
 
 const DEFAULT_ENDPOINT = (() => {
   return 'ws://127.0.0.1:10000/';
@@ -29,7 +29,6 @@ type ConnectPanelProps = {
   defaultEndpoint?: string;
   onConnect: (params: ConnectParams) => Promise<void>;
   onTestConnection: (params: ConnectionTestParams) => Promise<ConnectionTestResult>;
-  onDisconnect: () => Promise<void>;
   onLog: (entry: LogInput) => void;
   onToast: (toast: ToastInput) => void;
 };
@@ -39,7 +38,67 @@ type ConnectionProfile = {
   name: string;
   endpoint: string;
   configJson?: string;
+  auth?: Pick<AuthConfig, 'type' | 'username' | 'headerName'>;
+  tls?: TlsConfig;
+  reconnect?: ReconnectConfig;
+  healthCheckIntervalMs?: number;
   updatedAt: number;
+};
+
+type ConnectionOptionsTab =
+  | 'profiles'
+  | 'security'
+  | 'reliability'
+  | 'advanced'
+  | 'diagnostics';
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+};
+
+const optionalString = (value: unknown): string | undefined => {
+  return typeof value === 'string' ? value : undefined;
+};
+
+const optionalNumber = (value: unknown): number | undefined => {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+};
+
+const parseStoredAuth = (
+  value: unknown
+): Pick<AuthConfig, 'type' | 'username' | 'headerName'> | undefined => {
+  if (!isRecord(value)) return undefined;
+  const type = value.type;
+  if (type !== 'none' && type !== 'basic' && type !== 'bearer' && type !== 'header') {
+    return undefined;
+  }
+  return {
+    type,
+    username: optionalString(value.username),
+    headerName: optionalString(value.headerName)
+  };
+};
+
+const parseStoredTls = (value: unknown): TlsConfig | undefined => {
+  if (!isRecord(value)) return undefined;
+  return {
+    caPath: optionalString(value.caPath),
+    certPath: optionalString(value.certPath),
+    keyPath: optionalString(value.keyPath),
+    rejectUnauthorized:
+      typeof value.rejectUnauthorized === 'boolean' ? value.rejectUnauthorized : undefined
+  };
+};
+
+const parseStoredReconnect = (value: unknown): ReconnectConfig | undefined => {
+  if (!isRecord(value) || typeof value.enabled !== 'boolean') return undefined;
+  return {
+    enabled: value.enabled,
+    baseDelayMs: optionalNumber(value.baseDelayMs),
+    maxDelayMs: optionalNumber(value.maxDelayMs),
+    maxAttempts: optionalNumber(value.maxAttempts),
+    jitter: typeof value.jitter === 'boolean' ? value.jitter : undefined
+  };
 };
 
 const buildId = () => {
@@ -68,6 +127,10 @@ const parseProfiles = (raw: string | null): ConnectionProfile[] => {
         if (typeof record.configJson === 'string') {
           profile.configJson = record.configJson;
         }
+        profile.auth = parseStoredAuth(record.auth);
+        profile.tls = parseStoredTls(record.tls);
+        profile.reconnect = parseStoredReconnect(record.reconnect);
+        profile.healthCheckIntervalMs = optionalNumber(record.healthCheckIntervalMs);
         return profile;
       })
       .filter((entry): entry is ConnectionProfile => entry !== null);
@@ -198,7 +261,6 @@ const ConnectPanel = ({
   defaultEndpoint,
   onConnect,
   onTestConnection,
-  onDisconnect,
   onLog,
   onToast
 }: ConnectPanelProps) => {
@@ -240,6 +302,8 @@ const ConnectPanel = ({
   const [testTimeout, setTestTimeout] = useState(DEFAULT_TEST_TIMEOUT_MS);
   const [testRunning, setTestRunning] = useState(false);
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
+  const [activeOptionsTab, setActiveOptionsTab] =
+    useState<ConnectionOptionsTab>('profiles');
 
   useEffect(() => {
     if (!defaultEndpoint) return;
@@ -317,6 +381,26 @@ const ConnectPanel = ({
     setEndpoint(profile.endpoint);
     setConfigJson(profile.configJson ?? '');
     setProfileName(profile.name);
+    setAuthType(profile.auth?.type ?? 'none');
+    setAuthUsername(profile.auth?.username ?? '');
+    setAuthPassword('');
+    setAuthToken('');
+    setAuthHeaderName(profile.auth?.headerName ?? '');
+    setAuthHeaderValue('');
+    setTlsCaPath(profile.tls?.caPath ?? '');
+    setTlsCertPath(profile.tls?.certPath ?? '');
+    setTlsKeyPath(profile.tls?.keyPath ?? '');
+    setTlsVerify(profile.tls?.rejectUnauthorized ?? true);
+    setReconnectEnabled(profile.reconnect?.enabled ?? true);
+    setReconnectBaseDelay(
+      String(profile.reconnect?.baseDelayMs ?? DEFAULT_RECONNECT_BASE_DELAY_MS)
+    );
+    setReconnectMaxDelay(String(profile.reconnect?.maxDelayMs ?? DEFAULT_RECONNECT_MAX_DELAY_MS));
+    setReconnectMaxAttempts(
+      profile.reconnect?.maxAttempts === undefined ? '' : String(profile.reconnect.maxAttempts)
+    );
+    setReconnectJitter(profile.reconnect?.jitter ?? true);
+    setHealthInterval(String(profile.healthCheckIntervalMs ?? DEFAULT_HEALTH_INTERVAL_MS));
   }, [profiles, selectedProfileId]);
 
   useEffect(() => {
@@ -339,11 +423,24 @@ const ConnectPanel = ({
     }
 
     const id = selectedProfileId || buildId();
+    const auth = buildAuthConfig(authType, authUsername, '', '', authHeaderName, '');
+    const tls = buildTlsConfig(tlsCaPath, tlsCertPath, tlsKeyPath, tlsVerify);
+    const reconnect = buildReconnectConfig(
+      reconnectEnabled,
+      reconnectBaseDelay,
+      reconnectMaxDelay,
+      reconnectMaxAttempts,
+      reconnectJitter
+    );
     const profile: ConnectionProfile = {
       id,
       name,
       endpoint: endpoint.trim(),
       configJson: configJson.trim() || undefined,
+      auth,
+      tls,
+      reconnect,
+      healthCheckIntervalMs: parseOptionalNumber(healthInterval),
       updatedAt: Date.now()
     };
 
@@ -409,20 +506,8 @@ const ConnectPanel = ({
     }
   };
 
-  const handleDisconnect = async () => {
-    setBusy(true);
-    try {
-      await onDisconnect();
-    } catch {
-      // ignore disconnect errors
-      onToast({ type: 'error', message: 'Disconnect failed', detail: 'See logs for details.' });
-      onLog({ level: 'error', source: 'connect', message: 'Disconnect failed.' });
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const handleTestConnection = async () => {
+    setActiveOptionsTab('diagnostics');
     const trimmedEndpoint = endpoint.trim();
     if (!trimmedEndpoint) {
       setTestResult({
@@ -457,12 +542,17 @@ const ConnectPanel = ({
       const result = await onTestConnection(params);
       setTestResult(result);
       if (!result.ok) {
-        const detail = result.hint ? `${result.error ?? ''} ${result.hint}`.trim() : result.error;
-        onToast({ type: 'error', message: 'Test connection failed', detail });
+        const message = result.error ?? 'Test connection failed.';
+        const detail = result.hint;
+        onToast({
+          type: 'error',
+          message: 'Test connection failed',
+          detail: detail ? `${message} ${detail}` : message
+        });
         onLog({
           level: 'error',
           source: 'diagnostics',
-          message: result.error ?? 'Test connection failed.',
+          message,
           detail
         });
       } else {
@@ -502,13 +592,6 @@ const ConnectPanel = ({
     };
   }, [status.connected, status.health]);
 
-  const badgeTone =
-    healthInfo.state === 'connected'
-      ? 'badge--ok'
-      : healthInfo.state === 'connecting' || healthInfo.state === 'reconnecting'
-        ? 'badge--warn'
-        : 'badge--idle';
-
   const testSummary = useMemo(() => {
     if (!testResult) return null;
     const duration = `${Math.round(testResult.durationMs)}ms`;
@@ -544,11 +627,32 @@ const ConnectPanel = ({
     return `${configJson.trim().length} chars`;
   }, [configJson]);
 
+  const optionsLocked = busy || status.connected;
+
   return (
     <section className="panel panel--accent connect_panel">
+      <div className="connect_intro">
+        <div>
+          <span className="connect_kicker">Router connection</span>
+          <h2>{status.connected ? 'Connected and ready' : 'Connect to a Zenoh router'}</h2>
+          <p>
+            {status.connected
+              ? 'Carto is ready to publish and monitor messages on this router.'
+              : 'Enter the Remote API WebSocket address. The defaults work for a local router.'}
+          </p>
+        </div>
+        <div className={`connect_live-state connect_live-state--${healthInfo.state}`}>
+          <span aria-hidden="true" />
+          <div>
+            <small>Current status</small>
+            <strong>{healthInfo.label}</strong>
+          </div>
+        </div>
+      </div>
+
       <div className="connect_quick connect_quick--hero">
         <label className="field field--combo">
-          <span>Router endpoint</span>
+          <span>Remote API endpoint</span>
           <div className="combo" ref={comboRef}>
             <input
               ref={endpointInputRef}
@@ -618,54 +722,34 @@ const ConnectPanel = ({
               </div>
             ) : null}
           </div>
+          <span className="helper">
+            {status.connected
+              ? 'Disconnect before changing this endpoint or its connection options.'
+              : 'Default: ws://127.0.0.1:10000/'}
+          </span>
         </label>
-        <div className="connect_quick-row connect_quick-row--top">
-          <div className="connect_summary">
-            <div className="connect_summary-item">
-              <span className="monitor_eyebrow">Mode</span>
-              <strong>client</strong>
-            </div>
-            <div className="connect_summary-item">
-              <span className="monitor_eyebrow">Status</span>
-              <strong>{healthInfo.label}</strong>
-            </div>
-          </div>
-          <label className="field connect_health-field">
-            <span>Health check (ms)</span>
-            <input
-              type="number"
-              min={0}
-              step={500}
-              value={healthInterval}
-              onChange={(event) => setHealthInterval(event.target.value)}
-              disabled={busy}
-            />
-          </label>
-          <div className="connect_actions">
+
+        <div className="connect_actions">
+          <button
+            className="button button--ghost"
+            onClick={() => handleTestConnection()}
+            disabled={busy || testRunning}
+            type="button"
+          >
+            {testRunning ? 'Checking…' : 'Check endpoint'}
+          </button>
+          {!status.connected ? (
             <button
-              className="button button--ghost"
-              onClick={() => handleTestConnection()}
-              disabled={busy || testRunning}
-              type="button"
+              className="button connect_primary"
+              onClick={handleConnect}
+              disabled={busy || !endpoint.trim()}
             >
-              {testRunning ? 'Testing...' : 'Test connection'}
+              <span className="button_icon" aria-hidden="true">
+                <IconPlug />
+              </span>{' '}
+              Connect to router
             </button>
-            {status.connected ? (
-              <button className="button button--ghost" onClick={handleDisconnect} disabled={busy}>
-                <span className="button_icon" aria-hidden="true">
-                  <IconLinkOff />
-                </span>{' '}
-                Disconnect
-              </button>
-            ) : (
-              <button className="button connect_primary" onClick={handleConnect} disabled={busy || !endpoint.trim()}>
-                <span className="button_icon" aria-hidden="true">
-                  <IconPlug />
-                </span>{' '}
-                Connect
-              </button>
-            )}
-          </div>
+          ) : null}
         </div>
       </div>
 
@@ -675,343 +759,443 @@ const ConnectPanel = ({
       {localError ? <div className="notice notice--error">{localError}</div> : null}
       {status.error ? <div className="panel_error">{status.error}</div> : null}
 
-      <div className="connect_sections">
-      <details className="disclosure">
-        <summary className="disclosure_summary">
-          <span className="disclosure_title">Profiles</span>{' '}
-          <span className="disclosure_meta">{profiles.length} saved</span>{' '}
-          <span className="disclosure_icon" aria-hidden="true">
-            <IconChevronDown />
-          </span>
-        </summary>
-        <div className="disclosure_content">
-          <div className="connect_grid">
-            <label className="field">
-              <span>Saved profiles</span>
-              <select
-                value={selectedProfileId}
-                onChange={(event) => setSelectedProfileId(event.target.value)}
-                disabled={busy}
-              >
-                <option value="">Select a profile</option>
-                {profiles.map((profile) => (
-                  <option key={profile.id} value={profile.id}>
-                    {profile.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              <span>Profile name</span>
-              <input
-                type="text"
-                value={profileName}
-                onChange={(event) => {
-                  setProfileName(event.target.value);
-                  setProfileError(null);
-                }}
-                placeholder="My router"
-                disabled={busy}
-              />
-            </label>
+      <section className="connect_options" aria-labelledby="connection-options-title">
+        <div className="connect_options-head">
+          <div>
+            <h3 id="connection-options-title">Connection options</h3>
+            <p>Optional settings for secured, remote, or unreliable networks.</p>
           </div>
-          <div className="connect_row">
-            <button className="button button--ghost" onClick={handleSaveProfile} disabled={busy}>
-              <span className="button_icon" aria-hidden="true">
-                <IconSave />
-              </span>{' '}Save profile
-            </button>
-            <button
-              className="button button--ghost"
-              onClick={handleDeleteProfile}
-              disabled={busy || !selectedProfileId}
-            >
-              <span className="button_icon" aria-hidden="true">
-                <IconTrash />
-              </span>{' '}Delete
-            </button>
-          </div>
-          {profileError ? <div className="notice notice--error">{profileError}</div> : null}
+          {status.connected ? <span className="connect_options-lock">Locked while connected</span> : null}
         </div>
-      </details>
 
-      <details className="disclosure">
-        <summary className="disclosure_summary">
-          <span className="disclosure_title">Authentication</span>{' '}
-          <span className="disclosure_meta">{authSummary}</span>{' '}
-          <span className="disclosure_icon" aria-hidden="true">
-            <IconChevronDown />
-          </span>
-        </summary>
-        <div className="disclosure_content">
-          <label className="field">
-            <span>Auth type</span>
-            <select
-              value={authType}
-              onChange={(event) => setAuthType(event.target.value as AuthConfig['type'])}
-              disabled={busy}
+        <div className="connect_options-tabs" role="tablist" aria-label="Connection options">
+          <button
+            id="connection-tab-profiles"
+            className={`connect_options-tab ${activeOptionsTab === 'profiles' ? 'connect_options-tab--active' : ''}`}
+            type="button"
+            role="tab"
+            aria-selected={activeOptionsTab === 'profiles'}
+            aria-controls="connection-panel-profiles"
+            onClick={() => setActiveOptionsTab('profiles')}
+          >
+            <span>Profiles</span>
+            <small>{profiles.length} saved</small>
+          </button>
+          <button
+            id="connection-tab-security"
+            className={`connect_options-tab ${activeOptionsTab === 'security' ? 'connect_options-tab--active' : ''}`}
+            type="button"
+            role="tab"
+            aria-selected={activeOptionsTab === 'security'}
+            aria-controls="connection-panel-security"
+            onClick={() => setActiveOptionsTab('security')}
+          >
+            <span>Security</span>
+            <small>{authSummary} · TLS {tlsSummary}</small>
+          </button>
+          <button
+            id="connection-tab-reliability"
+            className={`connect_options-tab ${activeOptionsTab === 'reliability' ? 'connect_options-tab--active' : ''}`}
+            type="button"
+            role="tab"
+            aria-selected={activeOptionsTab === 'reliability'}
+            aria-controls="connection-panel-reliability"
+            onClick={() => setActiveOptionsTab('reliability')}
+          >
+            <span>Reliability</span>
+            <small>{reconnectSummary}</small>
+          </button>
+          <button
+            id="connection-tab-advanced"
+            className={`connect_options-tab ${activeOptionsTab === 'advanced' ? 'connect_options-tab--active' : ''}`}
+            type="button"
+            role="tab"
+            aria-selected={activeOptionsTab === 'advanced'}
+            aria-controls="connection-panel-advanced"
+            onClick={() => setActiveOptionsTab('advanced')}
+          >
+            <span>Advanced</span>
+            <small>Config {configSummary}</small>
+          </button>
+          <button
+            id="connection-tab-diagnostics"
+            className={`connect_options-tab ${activeOptionsTab === 'diagnostics' ? 'connect_options-tab--active' : ''}`}
+            type="button"
+            role="tab"
+            aria-selected={activeOptionsTab === 'diagnostics'}
+            aria-controls="connection-panel-diagnostics"
+            onClick={() => setActiveOptionsTab('diagnostics')}
+          >
+            <span>Diagnostics</span>
+            <small>{testSummary ?? 'Not run'}</small>
+          </button>
+        </div>
+
+        <div className="connect_options-body">
+          {activeOptionsTab === 'profiles' ? (
+            <div
+              id="connection-panel-profiles"
+              className="connect_options-panel"
+              role="tabpanel"
+              aria-labelledby="connection-tab-profiles"
             >
-              <option value="none">None</option>
-              <option value="basic">Basic (username + password)</option>
-              <option value="bearer">Bearer token</option>
-              <option value="header">Custom header</option>
-            </select>
-          </label>
-
-          {authType === 'basic' ? (
-            <div className="connect_grid">
-              <label className="field">
-                <span>Username</span>
-                <input
-                  type="text"
-                  value={authUsername}
-                  onChange={(event) => setAuthUsername(event.target.value)}
-                  disabled={busy}
-                />
-              </label>
-              <label className="field">
-                <span>Password</span>
-                <input
-                  type="password"
-                  value={authPassword}
-                  onChange={(event) => setAuthPassword(event.target.value)}
-                  disabled={busy}
-                />
-              </label>
+              <fieldset className="connect_options-fieldset" disabled={optionsLocked}>
+                <div className="connect_grid">
+                  <label className="field">
+                    <span>Saved profiles</span>
+                    <select
+                      value={selectedProfileId}
+                      onChange={(event) => setSelectedProfileId(event.target.value)}
+                    >
+                      <option value="">Select a profile</option>
+                      {profiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {profile.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Profile name</span>
+                    <input
+                      type="text"
+                      value={profileName}
+                      onChange={(event) => {
+                        setProfileName(event.target.value);
+                        setProfileError(null);
+                      }}
+                      placeholder="My router"
+                    />
+                  </label>
+                </div>
+                <div className="connect_row">
+                  <button className="button button--ghost" onClick={handleSaveProfile} type="button">
+                    <span className="button_icon" aria-hidden="true">
+                      <IconSave />
+                    </span>{' '}
+                    Save profile
+                  </button>
+                  <button
+                    className="button button--ghost"
+                    onClick={handleDeleteProfile}
+                    disabled={!selectedProfileId}
+                    type="button"
+                  >
+                    <span className="button_icon" aria-hidden="true">
+                      <IconTrash />
+                    </span>{' '}
+                    Delete
+                  </button>
+                </div>
+              </fieldset>
+              <p className="helper">
+                Profiles save this endpoint and its non-secret options. Passwords, tokens, and
+                custom header values are never stored.
+              </p>
+              {profileError ? <div className="notice notice--error">{profileError}</div> : null}
             </div>
           ) : null}
 
-          {authType === 'bearer' ? (
-            <label className="field">
-              <span>Bearer token</span>
-              <input
-                type="password"
-                value={authToken}
-                onChange={(event) => setAuthToken(event.target.value)}
-                disabled={busy}
-              />
-            </label>
-          ) : null}
+          {activeOptionsTab === 'security' ? (
+            <div
+              id="connection-panel-security"
+              className="connect_options-panel connect_options-panel--split"
+              role="tabpanel"
+              aria-labelledby="connection-tab-security"
+            >
+              <fieldset className="connect_options-fieldset" disabled={optionsLocked}>
+                <div className="connect_option-section">
+                  <div className="connect_option-heading">
+                    <h4>Authentication</h4>
+                    <p>Credentials sent when the Remote API session opens.</p>
+                  </div>
+                  <label className="field">
+                    <span>Authentication method</span>
+                    <select
+                      value={authType}
+                      onChange={(event) => setAuthType(event.target.value as AuthConfig['type'])}
+                    >
+                      <option value="none">None</option>
+                      <option value="basic">Basic (username + password)</option>
+                      <option value="bearer">Bearer token</option>
+                      <option value="header">Custom header</option>
+                    </select>
+                  </label>
+                  {authType === 'basic' ? (
+                    <div className="connect_grid">
+                      <label className="field">
+                        <span>Username</span>
+                        <input
+                          type="text"
+                          value={authUsername}
+                          onChange={(event) => setAuthUsername(event.target.value)}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Password</span>
+                        <input
+                          type="password"
+                          value={authPassword}
+                          onChange={(event) => setAuthPassword(event.target.value)}
+                        />
+                      </label>
+                    </div>
+                  ) : null}
+                  {authType === 'bearer' ? (
+                    <label className="field">
+                      <span>Bearer token</span>
+                      <input
+                        type="password"
+                        value={authToken}
+                        onChange={(event) => setAuthToken(event.target.value)}
+                      />
+                    </label>
+                  ) : null}
+                  {authType === 'header' ? (
+                    <div className="connect_grid">
+                      <label className="field">
+                        <span>Header name</span>
+                        <input
+                          type="text"
+                          value={authHeaderName}
+                          onChange={(event) => setAuthHeaderName(event.target.value)}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Header value</span>
+                        <input
+                          type="text"
+                          value={authHeaderValue}
+                          onChange={(event) => setAuthHeaderValue(event.target.value)}
+                        />
+                      </label>
+                    </div>
+                  ) : null}
+                </div>
 
-          {authType === 'header' ? (
-            <div className="connect_grid">
-              <label className="field">
-                <span>Header name</span>
-                <input
-                  type="text"
-                  value={authHeaderName}
-                  onChange={(event) => setAuthHeaderName(event.target.value)}
-                  disabled={busy}
-                />
-              </label>
-              <label className="field">
-                <span>Header value</span>
-                <input
-                  type="text"
-                  value={authHeaderValue}
-                  onChange={(event) => setAuthHeaderValue(event.target.value)}
-                  disabled={busy}
-                />
-              </label>
+                <div className="connect_option-section">
+                  <div className="connect_option-heading">
+                    <h4>TLS certificates</h4>
+                    <p>Only needed when your router uses custom certificates.</p>
+                  </div>
+                  <div className="connect_grid">
+                    <label className="field">
+                      <span>CA certificate path</span>
+                      <input
+                        type="text"
+                        value={tlsCaPath}
+                        onChange={(event) => setTlsCaPath(event.target.value)}
+                        placeholder="C:\\certs\\ca.pem"
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Client certificate path</span>
+                      <input
+                        type="text"
+                        value={tlsCertPath}
+                        onChange={(event) => setTlsCertPath(event.target.value)}
+                        placeholder="C:\\certs\\client.crt"
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Client key path</span>
+                      <input
+                        type="text"
+                        value={tlsKeyPath}
+                        onChange={(event) => setTlsKeyPath(event.target.value)}
+                        placeholder="C:\\certs\\client.key"
+                      />
+                    </label>
+                  </div>
+                  <label className="field field--inline">
+                    <input
+                      type="checkbox"
+                      checked={tlsVerify}
+                      onChange={(event) => setTlsVerify(event.target.checked)}
+                    />
+                    <span>Verify server certificate (recommended)</span>
+                  </label>
+                </div>
+              </fieldset>
             </div>
           ) : null}
-        </div>
-      </details>
 
-      <details className="disclosure">
-        <summary className="disclosure_summary">
-          <span className="disclosure_title">TLS</span>{' '}
-          <span className="disclosure_meta">{tlsSummary}</span>{' '}
-          <span className="disclosure_icon" aria-hidden="true">
-            <IconChevronDown />
-          </span>
-        </summary>
-        <div className="disclosure_content">
-          <div className="connect_grid">
-            <label className="field">
-              <span>CA certificate path</span>
-              <input
-                type="text"
-                value={tlsCaPath}
-                onChange={(event) => setTlsCaPath(event.target.value)}
-                placeholder="C:\\certs\\ca.pem"
-                disabled={busy}
-              />
-            </label>
-            <label className="field">
-              <span>Client certificate path</span>
-              <input
-                type="text"
-                value={tlsCertPath}
-                onChange={(event) => setTlsCertPath(event.target.value)}
-                placeholder="C:\\certs\\client.crt"
-                disabled={busy}
-              />
-            </label>
-            <label className="field">
-              <span>Client key path</span>
-              <input
-                type="text"
-                value={tlsKeyPath}
-                onChange={(event) => setTlsKeyPath(event.target.value)}
-                placeholder="C:\\certs\\client.key"
-                disabled={busy}
-              />
-            </label>
-          </div>
-          <label className="field field--inline">
-            <input
-              type="checkbox"
-              checked={tlsVerify}
-              onChange={(event) => setTlsVerify(event.target.checked)}
-              disabled={busy}
-            />
-            <span>Verify server certificate (recommended)</span>
-          </label>
-        </div>
-      </details>
+          {activeOptionsTab === 'reliability' ? (
+            <div
+              id="connection-panel-reliability"
+              className="connect_options-panel"
+              role="tabpanel"
+              aria-labelledby="connection-tab-reliability"
+            >
+              <fieldset className="connect_options-fieldset" disabled={optionsLocked}>
+                <div className="connect_option-heading">
+                  <h4>Automatic reconnect</h4>
+                  <p>Keep Carto attached when a router or network briefly disappears.</p>
+                </div>
+                <label className="field field--inline">
+                  <input
+                    type="checkbox"
+                    checked={reconnectEnabled}
+                    onChange={(event) => setReconnectEnabled(event.target.checked)}
+                  />
+                  <span>Reconnect automatically with exponential backoff</span>
+                </label>
+                <div className="connect_grid">
+                  <label className="field">
+                    <span>Initial delay (ms)</span>
+                    <input
+                      type="number"
+                      min={250}
+                      step={250}
+                      value={reconnectBaseDelay}
+                      onChange={(event) => setReconnectBaseDelay(event.target.value)}
+                      disabled={!reconnectEnabled}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Maximum delay (ms)</span>
+                    <input
+                      type="number"
+                      min={250}
+                      step={250}
+                      value={reconnectMaxDelay}
+                      onChange={(event) => setReconnectMaxDelay(event.target.value)}
+                      disabled={!reconnectEnabled}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Stop after</span>
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={reconnectMaxAttempts}
+                      onChange={(event) => setReconnectMaxAttempts(event.target.value)}
+                      placeholder="Never"
+                      disabled={!reconnectEnabled}
+                    />
+                    <span className="helper">Leave empty to keep retrying.</span>
+                  </label>
+                </div>
+                <label className="field field--inline">
+                  <input
+                    type="checkbox"
+                    checked={reconnectJitter}
+                    onChange={(event) => setReconnectJitter(event.target.checked)}
+                    disabled={!reconnectEnabled}
+                  />
+                  <span>Randomize retry timing to avoid reconnect spikes</span>
+                </label>
+              </fieldset>
+            </div>
+          ) : null}
 
-      <details className="disclosure">
-        <summary className="disclosure_summary">
-          <span className="disclosure_title">Reconnect</span>{' '}
-          <span className="disclosure_meta">{reconnectSummary}</span>{' '}
-          <span className="disclosure_icon" aria-hidden="true">
-            <IconChevronDown />
-          </span>
-        </summary>
-        <div className="disclosure_content">
-          <label className="field field--inline">
-            <input
-              type="checkbox"
-              checked={reconnectEnabled}
-              onChange={(event) => setReconnectEnabled(event.target.checked)}
-              disabled={busy}
-            />
-            <span>Auto reconnect with backoff</span>
-          </label>
-          <div className="connect_grid">
-            <label className="field">
-              <span>Base delay (ms)</span>
-              <input
-                type="number"
-                min={250}
-                step={250}
-                value={reconnectBaseDelay}
-                onChange={(event) => setReconnectBaseDelay(event.target.value)}
-                disabled={busy || !reconnectEnabled}
-              />
-            </label>
-            <label className="field">
-              <span>Max delay (ms)</span>
-              <input
-                type="number"
-                min={250}
-                step={250}
-                value={reconnectMaxDelay}
-                onChange={(event) => setReconnectMaxDelay(event.target.value)}
-                disabled={busy || !reconnectEnabled}
-              />
-            </label>
-            <label className="field">
-              <span>Max attempts</span>
-              <input
-                type="number"
-                min={1}
-                step={1}
-                value={reconnectMaxAttempts}
-                onChange={(event) => setReconnectMaxAttempts(event.target.value)}
-                placeholder="Unlimited"
-                disabled={busy || !reconnectEnabled}
-              />
-            </label>
-          </div>
-          <label className="field field--inline">
-            <input
-              type="checkbox"
-              checked={reconnectJitter}
-              onChange={(event) => setReconnectJitter(event.target.checked)}
-              disabled={busy || !reconnectEnabled}
-            />
-            <span>Add jitter to retries</span>
-          </label>
-          <p className="helper">Max attempts counts the initial connection plus retries.</p>
-        </div>
-      </details>
+          {activeOptionsTab === 'advanced' ? (
+            <div
+              id="connection-panel-advanced"
+              className="connect_options-panel"
+              role="tabpanel"
+              aria-labelledby="connection-tab-advanced"
+            >
+              <fieldset className="connect_options-fieldset" disabled={optionsLocked}>
+                <div className="connect_option-heading">
+                  <h4>Session configuration</h4>
+                  <p>Low-level health monitoring and Remote API driver options.</p>
+                </div>
+                <label className="field connect_health-field">
+                  <span>Health check interval (ms)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={500}
+                    value={healthInterval}
+                    onChange={(event) => setHealthInterval(event.target.value)}
+                  />
+                  <span className="helper">Use 0 to disable active health checks.</span>
+                </label>
+                <label className="field">
+                  <span>Driver config JSON</span>
+                  <textarea
+                    value={configJson}
+                    onChange={(event) => {
+                      setConfigJson(event.target.value);
+                      setLocalError(null);
+                    }}
+                    placeholder={`{"locator": "${DEFAULT_ENDPOINT}", "messageResponseTimeoutMs": 5000}`}
+                    rows={5}
+                  />
+                </label>
+              </fieldset>
+            </div>
+          ) : null}
 
-      <details className="disclosure">
-        <summary className="disclosure_summary">
-          <span className="disclosure_title">Advanced</span>{' '}
-          <span className="disclosure_meta">Config: {configSummary}</span>{' '}
-          <span className="disclosure_icon" aria-hidden="true">
-            <IconChevronDown />
-          </span>
-        </summary>
-        <div className="disclosure_content">
-          <label className="field">
-            <span>Config JSON (optional)</span>
-            <textarea
-              value={configJson}
-              onChange={(event) => {
-                setConfigJson(event.target.value);
-                setLocalError(null);
-              }}
-              placeholder={`{"locator": "${DEFAULT_ENDPOINT}", "messageResponseTimeoutMs": 5000}`}
-              rows={4}
-              disabled={busy}
-            />
-          </label>
-        </div>
-      </details>
-
-      <details className="disclosure connect_diagnostics">
-        <summary className="disclosure_summary">
-          <span className="disclosure_title">Diagnostics</span>{' '}
-          <span className="disclosure_meta">{testSummary ?? 'Not run'}</span>{' '}
-          <span className="disclosure_icon" aria-hidden="true">
-            <IconChevronDown />
-          </span>
-        </summary>
-        <div className="disclosure_content">
-          <label className="field">
-            <span>Timeout (ms)</span>
-            <input
-              type="number"
-              min={1000}
-              step={500}
-              value={testTimeout}
-              onChange={(event) => setTestTimeout(event.target.value)}
-              disabled={busy || testRunning}
-            />
-          </label>
-          {testResult?.ok && testResult.capabilities ? (
-            <div className="diagnostics_block">
-              <div className="diagnostics_row">
-                <span className="diagnostics_label">Driver</span>{' '}
-                <span>{testResult.capabilities.driver}</span>
+          {activeOptionsTab === 'diagnostics' ? (
+            <div
+              id="connection-panel-diagnostics"
+              className="connect_options-panel"
+              role="tabpanel"
+              aria-labelledby="connection-tab-diagnostics"
+            >
+              <div className="connect_option-heading">
+                <h4>Endpoint check</h4>
+                <p>Open a temporary session and report the server capabilities.</p>
               </div>
-              {testResult.capabilities.zenoh ? (
-                <div className="diagnostics_row">
-                  <span className="diagnostics_label">Zenoh</span>{' '}
-                  <span>{testResult.capabilities.zenoh}</span>
+              <div className="connect_diagnostics-controls">
+                <label className="field">
+                  <span>Timeout (ms)</span>
+                  <input
+                    type="number"
+                    min={1000}
+                    step={500}
+                    value={testTimeout}
+                    onChange={(event) => setTestTimeout(event.target.value)}
+                    disabled={busy || testRunning}
+                  />
+                </label>
+                <button
+                  className="button button--ghost"
+                  type="button"
+                  onClick={() => handleTestConnection()}
+                  disabled={busy || testRunning}
+                >
+                  {testRunning ? 'Checking…' : 'Run check'}
+                </button>
+              </div>
+              {testResult?.ok && testResult.capabilities ? (
+                <div className="diagnostics_block">
+                  <div className="diagnostics_row">
+                    <span className="diagnostics_label">Result</span>
+                    <span>{testSummary}</span>
+                  </div>
+                  <div className="diagnostics_row">
+                    <span className="diagnostics_label">Driver</span>
+                    <span>{testResult.capabilities.driver}</span>
+                  </div>
+                  {testResult.capabilities.zenoh ? (
+                    <div className="diagnostics_row">
+                      <span className="diagnostics_label">Zenoh</span>
+                      <span>{testResult.capabilities.zenoh}</span>
+                    </div>
+                  ) : null}
+                  {testResult.capabilities.remoteApi ? (
+                    <div className="diagnostics_row">
+                      <span className="diagnostics_label">Remote API</span>
+                      <span>{testResult.capabilities.remoteApi}</span>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
-              {testResult.capabilities.remoteApi ? (
-                <div className="diagnostics_row">
-                  <span className="diagnostics_label">Remote API</span>{' '}
-                  <span>{testResult.capabilities.remoteApi}</span>
-                </div>
+              {!testResult?.ok && testResult?.error ? (
+                <div className="notice notice--error">{testResult.error}</div>
               ) : null}
+              {testResult?.hint ? (
+                <div className="notice notice--info notice--info-warning">{testResult.hint}</div>
+              ) : null}
+              {!testResult ? <p className="connect_diagnostics-empty">No check has been run yet.</p> : null}
             </div>
           ) : null}
-          {!testResult?.ok && testResult?.error ? (
-            <div className="notice notice--error">{testResult.error}</div>
-          ) : null}
-          {testResult?.hint ? (
-            <div className="notice notice--info notice--info-warning">{testResult.hint}</div>
-          ) : null}
         </div>
-      </details>
-      </div>
+      </section>
     </section>
   );
 };

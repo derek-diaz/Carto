@@ -8,6 +8,12 @@ import type { CartoMessage, RecentKeyStats } from '@shared/types';
 import type { Subscription } from '../store/useCarto';
 import type { LogInput, ToastInput } from '../utils/notifications';
 import type { DecoderConfig, ProtoTypeOption } from '../utils/proto';
+import {
+  clampInspectorHeight,
+  FALLBACK_MAX_INSPECTOR_HEIGHT,
+  MIN_INSPECTOR_HEIGHT,
+  MIN_STREAM_HEIGHT
+} from '../utils/inspectorSizing';
 import KeyExplorer from './KeyExplorer';
 import MessageInspector from './MessageInspector';
 import {
@@ -23,19 +29,8 @@ import {
 import StreamView from './StreamView';
 import SubscribePanel from './SubscribePanel';
 
-const INSPECTOR_HEIGHT_STORAGE_KEY = 'carto.monitor.inspectorHeight';
+const INSPECTOR_HEIGHT_STORAGE_KEY = 'carto.monitor.inspectorHeight.v3';
 const DEFAULT_INSPECTOR_HEIGHT = 320;
-const MIN_INSPECTOR_HEIGHT = 220;
-const MAX_INSPECTOR_HEIGHT = 560;
-const MIN_STREAM_HEIGHT = 240;
-
-const clampInspectorHeight = (value: number, workspaceHeight?: number) => {
-  const viewportMax =
-    workspaceHeight && Number.isFinite(workspaceHeight)
-      ? Math.max(MIN_INSPECTOR_HEIGHT, workspaceHeight - MIN_STREAM_HEIGHT)
-      : MAX_INSPECTOR_HEIGHT;
-  return Math.min(Math.min(MAX_INSPECTOR_HEIGHT, viewportMax), Math.max(MIN_INSPECTOR_HEIGHT, value));
-};
 
 const readInspectorHeight = () => {
   if (typeof globalThis === 'undefined' || !('localStorage' in globalThis)) {
@@ -140,8 +135,10 @@ const MonitorView = ({
     subscriptions.find((sub) => sub.id === editingSubscriptionId) ?? null;
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [inspectorHeight, setInspectorHeight] = useState(readInspectorHeight);
+  const [inspectorExpanded, setInspectorExpanded] = useState(false);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const inspectorHeightRef = useRef(inspectorHeight);
+  const inspectorRestoreHeightRef = useRef(inspectorHeight);
 
   useEffect(() => {
     if (!editingSubscriptionId) return;
@@ -172,6 +169,23 @@ const MonitorView = ({
   }, [inspectorHeight]);
 
   useEffect(() => {
+    const handleViewportResize = () => {
+      const workspaceHeight = workspaceRef.current?.getBoundingClientRect().height;
+      if (!workspaceHeight) return;
+      const desiredHeight = inspectorExpanded
+        ? workspaceHeight - MIN_STREAM_HEIGHT
+        : inspectorHeightRef.current;
+      const nextHeight = clampInspectorHeight(desiredHeight, workspaceHeight);
+      if (nextHeight === inspectorHeightRef.current) return;
+      inspectorHeightRef.current = nextHeight;
+      setInspectorHeight(nextHeight);
+    };
+    handleViewportResize();
+    globalThis.addEventListener('resize', handleViewportResize);
+    return () => globalThis.removeEventListener('resize', handleViewportResize);
+  }, [inspectorExpanded]);
+
+  useEffect(() => {
     if (selectedRecentKeys.length === 0) {
       setSelectedKey(null);
       return;
@@ -192,8 +206,13 @@ const MonitorView = ({
     const startY = event.clientY;
     const startHeight = inspectorHeightRef.current;
     const workspaceHeight = workspace.getBoundingClientRect().height;
+    let hasMoved = false;
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
+      if (!hasMoved) {
+        hasMoved = true;
+        setInspectorExpanded(false);
+      }
       const nextHeight = clampInspectorHeight(
         startHeight + startY - moveEvent.clientY,
         workspaceHeight
@@ -229,7 +248,9 @@ const MonitorView = ({
     } else if (event.key === 'Home') {
       nextHeight = MIN_INSPECTOR_HEIGHT;
     } else if (event.key === 'End') {
-      nextHeight = MAX_INSPECTOR_HEIGHT;
+      nextHeight = workspaceHeight
+        ? workspaceHeight - MIN_STREAM_HEIGHT
+        : FALLBACK_MAX_INSPECTOR_HEIGHT;
     }
 
     if (nextHeight === null) return;
@@ -237,12 +258,71 @@ const MonitorView = ({
     const clampedHeight = clampInspectorHeight(nextHeight, workspaceHeight);
     inspectorHeightRef.current = clampedHeight;
     setInspectorHeight(clampedHeight);
+    setInspectorExpanded(false);
     persistInspectorHeight(clampedHeight);
+  };
+
+  const restoreInspectorHeight = () => {
+    const workspaceHeight = workspaceRef.current?.getBoundingClientRect().height;
+    const nextHeight = clampInspectorHeight(inspectorRestoreHeightRef.current, workspaceHeight);
+    inspectorHeightRef.current = nextHeight;
+    setInspectorHeight(nextHeight);
+    setInspectorExpanded(false);
+  };
+
+  const handleToggleInspectorExpanded = () => {
+    if (inspectorExpanded) {
+      restoreInspectorHeight();
+      return;
+    }
+    const workspaceHeight = workspaceRef.current?.getBoundingClientRect().height;
+    if (!workspaceHeight) return;
+    inspectorRestoreHeightRef.current = inspectorHeightRef.current;
+    const nextHeight = clampInspectorHeight(
+      workspaceHeight - MIN_STREAM_HEIGHT,
+      workspaceHeight
+    );
+    inspectorHeightRef.current = nextHeight;
+    setInspectorHeight(nextHeight);
+    setInspectorExpanded(true);
+  };
+
+  const handleCloseInspector = () => {
+    if (inspectorExpanded) restoreInspectorHeight();
+    onCloseInspector();
   };
 
   if (subscriptions.length === 0) {
     return (
-      <div className="app_page app_page--center">
+      <div className="monitor_start">
+        <section className="monitor_start-intro" aria-labelledby="monitor-start-title">
+          <span className="monitor_start-kicker">Live monitor</span>
+          <h2 id="monitor-start-title">Watch Zenoh messages as they arrive</h2>
+          <p>
+            Subscribe to a key expression and Carto will collect matching messages, discover keys,
+            and let you inspect each payload.
+          </p>
+
+          <div className="monitor_start-examples">
+            <div>
+              <code>robot/telemetry</code>
+              <span>One exact key</span>
+            </div>
+            <div>
+              <code>demo/**</code>
+              <span>Everything below a branch</span>
+            </div>
+            <div>
+              <code>**</code>
+              <span>Every key visible to this router</span>
+            </div>
+          </div>
+
+          <p className="monitor_start-note">
+            You can run multiple subscriptions side by side and give each one its own decoder.
+          </p>
+        </section>
+
         <SubscribePanel
           connected={connected}
           subscriptions={subscriptions}
@@ -258,6 +338,7 @@ const MonitorView = ({
           protoTypes={protoTypes}
           decoderById={decoderById}
           protoTypeLabels={protoTypeLabels}
+          variant="onboarding"
         />
       </div>
     );
@@ -266,7 +347,9 @@ const MonitorView = ({
   return (
     <div className="app_content app_content--single monitor_shell">
       <main
-        className="monitor_workspace"
+        className={`monitor_workspace ${
+          monitorTab === 'stream' && selectedMessage ? 'monitor_workspace--inspector' : ''
+        }`}
         ref={workspaceRef}
         style={{ '--monitor-inspector-height': `${inspectorHeight}px` } as CSSProperties}
       >
@@ -378,6 +461,12 @@ const MonitorView = ({
           <dialog
             className="modal"
             aria-label={editingSubscription ? 'Edit subscription' : 'Add subscription'}
+            aria-modal="true"
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape') return;
+              event.preventDefault();
+              closeSubscriptionModal();
+            }}
             open
           >
             <div className="modal_backdrop" onClick={closeSubscriptionModal} />
@@ -458,15 +547,17 @@ const MonitorView = ({
           </div>
         </section>
 
-        {monitorTab === 'stream' ? (
+        {monitorTab === 'stream' && selectedMessage ? (
           <MessageInspector
             message={selectedMessage}
             protoResult={protoResult}
             subscriptionLabel={selectedSubscription?.keyexpr}
             variant="dock"
-            onClose={onCloseInspector}
+            expanded={inspectorExpanded}
+            onClose={handleCloseInspector}
             onResizeStart={handleInspectorResizeStart}
             onResizeKeyDown={handleInspectorResizeKeyDown}
+            onToggleExpanded={handleToggleInspectorExpanded}
           />
         ) : null}
       </main>

@@ -13,8 +13,10 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=8080
+ENV HOST=0.0.0.0
 ENV CARTO_WEB_DIST=/app/dist/web
 ENV CARTO_CONTAINERIZED=1
+ENV CARTO_ALLOW_REMOTE=1
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
