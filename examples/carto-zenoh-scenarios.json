@@ -1,0 +1,264 @@
+{
+  "version": 1,
+  "exportedAt": "2026-08-22T00:00:00.000Z",
+  "app": {
+    "name": "Carto",
+    "version": "0.7.1"
+  },
+  "data": {
+    "theme": "dark",
+    "ringBufferSize": 500,
+    "protoSchemas": [
+      {
+        "id": "carto-scenario-schema-v1",
+        "name": "Carto scenario messages",
+        "source": "syntax = \"proto3\";\n\npackage carto.scenarios;\n\nmessage Telemetry {\n  string device_id = 1;\n  uint64 sequence = 2;\n  double temperature_c = 3;\n  double battery_percent = 4;\n  repeated double position = 5;\n  map<string, string> labels = 6;\n  int64 sent_at_ms = 7;\n}\n\nmessage Alert {\n  enum Severity {\n    INFO = 0;\n    WARNING = 1;\n    CRITICAL = 2;\n  }\n\n  string device_id = 1;\n  Severity severity = 2;\n  string code = 3;\n  string message = 4;\n  int64 sent_at_ms = 5;\n}\n"
+      }
+    ],
+    "histories": {
+      "subscribe": [
+        "carto/demo/**",
+        "carto/demo/telemetry/**",
+        "carto/demo/logs/**",
+        "carto/demo/binary/**",
+        "carto/demo/protobuf/**",
+        "carto/demo/burst/**",
+        "carto/demo/large/**",
+        "carto/demo/lifecycle/**"
+      ],
+      "subscribeDetails": {
+        "carto/demo/**": {
+          "kind": "raw"
+        },
+        "carto/demo/telemetry/**": {
+          "kind": "raw"
+        },
+        "carto/demo/logs/**": {
+          "kind": "raw"
+        },
+        "carto/demo/binary/**": {
+          "kind": "raw"
+        },
+        "carto/demo/protobuf/**": {
+          "kind": "protobuf_multi",
+          "typeIds": [
+            "carto-scenario-schema-v1:carto.scenarios.Telemetry",
+            "carto-scenario-schema-v1:carto.scenarios.Alert"
+          ]
+        },
+        "carto/demo/burst/**": {
+          "kind": "raw"
+        },
+        "carto/demo/large/**": {
+          "kind": "raw"
+        },
+        "carto/demo/lifecycle/**": {
+          "kind": "raw"
+        }
+      },
+      "publish": [
+        "carto/demo/telemetry/robot-01",
+        "carto/demo/events/system",
+        "carto/demo/logs/service-a",
+        "carto/demo/binary/frame",
+        "carto/demo/protobuf/telemetry",
+        "carto/demo/protobuf/alert",
+        "carto/demo/burst/events",
+        "carto/demo/large/snapshot",
+        "carto/demo/lifecycle/device-01"
+      ],
+      "publishDetails": {
+        "carto/demo/telemetry/robot-01": {
+          "keyexpr": "carto/demo/telemetry/robot-01",
+          "encoding": "json",
+          "payload": "{\n  \"deviceId\": \"robot-01\",\n  \"temperatureC\": 24.5,\n  \"batteryPercent\": 87.2\n}"
+        },
+        "carto/demo/events/system": {
+          "keyexpr": "carto/demo/events/system",
+          "encoding": "json",
+          "payload": "{\n  \"event\": \"system.ready\",\n  \"region\": \"lab-a\",\n  \"healthy\": true\n}"
+        },
+        "carto/demo/logs/service-a": {
+          "keyexpr": "carto/demo/logs/service-a",
+          "encoding": "text",
+          "payload": "INFO service-a is ready"
+        },
+        "carto/demo/binary/frame": {
+          "keyexpr": "carto/demo/binary/frame",
+          "encoding": "base64",
+          "payload": "AAECAwQFBgcICQ=="
+        },
+        "carto/demo/protobuf/telemetry": {
+          "keyexpr": "carto/demo/protobuf/telemetry",
+          "encoding": "protobuf",
+          "protoTypeId": "carto-scenario-schema-v1:carto.scenarios.Telemetry",
+          "payload": "{\n  \"deviceId\": \"robot-01\",\n  \"sequence\": 1,\n  \"temperatureC\": 24.5,\n  \"batteryPercent\": 87.2,\n  \"position\": [18.2208, -66.5901],\n  \"labels\": {\n    \"site\": \"lab-a\"\n  },\n  \"sentAtMs\": 0\n}"
+        },
+        "carto/demo/protobuf/alert": {
+          "keyexpr": "carto/demo/protobuf/alert",
+          "encoding": "protobuf",
+          "protoTypeId": "carto-scenario-schema-v1:carto.scenarios.Alert",
+          "payload": "{\n  \"deviceId\": \"robot-02\",\n  \"severity\": 1,\n  \"code\": \"BATTERY_LOW\",\n  \"message\": \"Battery below threshold\",\n  \"sentAtMs\": 0\n}"
+        },
+        "carto/demo/burst/events": {
+          "keyexpr": "carto/demo/burst/events",
+          "encoding": "json",
+          "payload": "{\n  \"kind\": \"burst-event\",\n  \"source\": \"scenario-runner\"\n}"
+        },
+        "carto/demo/large/snapshot": {
+          "keyexpr": "carto/demo/large/snapshot",
+          "encoding": "json",
+          "payload": "{\n  \"kind\": \"large-snapshot\",\n  \"note\": \"The scenario runner expands this payload to the configured size.\"\n}"
+        },
+        "carto/demo/lifecycle/device-01": {
+          "keyexpr": "carto/demo/lifecycle/device-01",
+          "encoding": "json",
+          "payload": "{\n  \"deviceId\": \"device-01\",\n  \"state\": \"online\"\n}"
+        }
+      }
+    },
+    "connectionProfiles": [
+      {
+        "id": "carto-scenario-local",
+        "name": "Local scenario router",
+        "endpoint": "ws://127.0.0.1:10000/",
+        "reconnect": {
+          "enabled": true,
+          "baseDelayMs": 1000,
+          "maxDelayMs": 15000,
+          "jitter": true
+        },
+        "healthCheckIntervalMs": 5000,
+        "updatedAt": 1787356800000
+      }
+    ],
+    "scenarioPack": {
+      "id": "carto-demo",
+      "version": 1,
+      "label": "Carto Zenoh scenario pack",
+      "defaultEndpoint": "ws://127.0.0.1:10000/",
+      "rootKeyexpr": "carto/demo/**",
+      "scenarios": [
+        {
+          "id": "telemetry-json",
+          "label": "Steady JSON telemetry with changing sequence and timestamps",
+          "kind": "json",
+          "keyexpr": "carto/demo/telemetry/robot-01",
+          "count": 8,
+          "intervalMs": 120,
+          "payload": {
+            "deviceId": "robot-01",
+            "temperatureC": 24.5,
+            "batteryPercent": 87.2,
+            "position": [18.2208, -66.5901]
+          }
+        },
+        {
+          "id": "structured-events",
+          "label": "Structured application events on a separate branch",
+          "kind": "json",
+          "keyexpr": "carto/demo/events/system",
+          "count": 4,
+          "intervalMs": 80,
+          "payload": {
+            "event": "system.ready",
+            "region": "lab-a",
+            "healthy": true,
+            "tags": ["demo", "scenario"]
+          }
+        },
+        {
+          "id": "logs-text",
+          "label": "Plain-text log messages at several severity levels",
+          "kind": "text",
+          "keyexpr": "carto/demo/logs/service-a",
+          "intervalMs": 100,
+          "messages": [
+            "INFO service-a started",
+            "WARN cache response exceeded 100ms",
+            "ERROR upstream request failed",
+            "INFO service-a recovered"
+          ]
+        },
+        {
+          "id": "binary",
+          "label": "Opaque binary frames for Base64 inspection",
+          "kind": "binary",
+          "keyexpr": "carto/demo/binary/frame",
+          "count": 3,
+          "intervalMs": 100,
+          "sizeBytes": 256
+        },
+        {
+          "id": "protobuf-telemetry",
+          "label": "Schema-backed protobuf telemetry",
+          "kind": "protobuf",
+          "keyexpr": "carto/demo/protobuf/telemetry",
+          "schemaId": "carto-scenario-schema-v1",
+          "messageType": "carto.scenarios.Telemetry",
+          "count": 5,
+          "intervalMs": 120,
+          "payload": {
+            "deviceId": "robot-01",
+            "temperatureC": 24.5,
+            "batteryPercent": 87.2,
+            "position": [18.2208, -66.5901],
+            "labels": {
+              "site": "lab-a",
+              "team": "carto"
+            }
+          }
+        },
+        {
+          "id": "protobuf-alert",
+          "label": "A second protobuf type for multi-schema detection",
+          "kind": "protobuf",
+          "keyexpr": "carto/demo/protobuf/alert",
+          "schemaId": "carto-scenario-schema-v1",
+          "messageType": "carto.scenarios.Alert",
+          "count": 3,
+          "intervalMs": 150,
+          "payload": {
+            "deviceId": "robot-02",
+            "severity": 1,
+            "code": "BATTERY_LOW",
+            "message": "Battery below threshold"
+          }
+        },
+        {
+          "id": "burst",
+          "label": "Concurrent burst traffic for buffering and follow-mode checks",
+          "kind": "burst",
+          "keyexpr": "carto/demo/burst/events",
+          "count": 50,
+          "burstSize": 10,
+          "intervalMs": 40,
+          "payload": {
+            "kind": "burst-event",
+            "source": "scenario-runner"
+          }
+        },
+        {
+          "id": "large",
+          "label": "Large JSON snapshots for payload-detail and memory checks",
+          "kind": "large-json",
+          "keyexpr": "carto/demo/large/snapshot",
+          "count": 2,
+          "intervalMs": 150,
+          "sizeKiB": 256
+        },
+        {
+          "id": "lifecycle",
+          "label": "Put followed by delete on the same resource key",
+          "kind": "lifecycle",
+          "keyexpr": "carto/demo/lifecycle/device-01",
+          "deleteAfterMs": 250,
+          "payload": {
+            "deviceId": "device-01",
+            "state": "online"
+          }
+        }
+      ]
+    }
+  }
+}
