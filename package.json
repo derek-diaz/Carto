@@ -1,6 +1,6 @@
 {
   "name": "carto",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "private": true,
   "description": "Carto is a web-first app for inspecting Zenoh traffic.",
   "author": "Derek Diaz <derek.diaz@proton.me>",
@@ -66,7 +66,6 @@
     "@eclipse-zenoh/zenoh-ts": {
       "uuid": "11.1.1"
     },
-    "brace-expansion": "1.1.18",
     "js-yaml": "4.3.1"
   },
   "build": {
