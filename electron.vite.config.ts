@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { defineConfig } from 'electron-vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   main: {
@@ -30,9 +31,10 @@ export default defineConfig({
   },
   renderer: {
     root: path.resolve(__dirname, 'apps/web'),
-    plugins: [react()],
+    plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
+        '@': path.resolve(__dirname, 'apps/web/src'),
         '@assets': path.resolve(__dirname, 'assets'),
         '@shared': path.resolve(__dirname, 'packages/core/src/shared'),
         '@core': path.resolve(__dirname, 'packages/core/src')

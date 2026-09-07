@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { Worker } from 'node:worker_threads';
 import type {
   AuthConfig,
+  DiscoveryParams,
+  DiscoverySnapshot,
   Capabilities,
   CartoMessageBatchEvent,
   CartoMessage,
@@ -20,6 +22,8 @@ import type {
   TlsConfig
 } from '../shared/types';
 import { getKeyexprError } from '../shared/keyexpr';
+import { createDiscovery } from './discovery';
+import { createPayloadCache } from './payloadCache';
 import { createRingBuffer, type RingBuffer } from './ringBuffer';
 import { createRecentKeysIndex, type RecentKeysIndex } from './recentKeys';
 import type { CartoEventSink } from './eventSink';
@@ -43,8 +47,8 @@ const MAX_SEARCH_TEXT_CHARS = 256;
 const RENDERER_FLUSH_INTERVAL_MS = 16;
 const MAX_RENDER_QUEUE_MESSAGES_PER_SUB = 64;
 const DETAIL_DECODE_TIMEOUT_MS = 5000;
-const MAX_DETAIL_CACHE_MESSAGES_PER_SUB = 256;
-const MAX_DETAIL_CACHE_BYTES_PER_SUB = 192 * 1024 * 1024;
+const MAX_DETAIL_DECODE_PENDING = 4;
+const MAX_DETAIL_DECODE_PENDING_BYTES = 192 * 1024 * 1024;
 
 const AUTO_RECONNECT_DEFAULT: ReconnectConfig = {
   enabled: true,
@@ -102,7 +106,7 @@ const decodeDetail = (payload) => {
 parentPort.on('message', (message) => {
   const { requestId, payload } = message || {};
   try {
-    const bytes = Buffer.isBuffer(payload) ? payload : Buffer.from(payload);
+    const bytes = Buffer.from(payload.buffer, payload.byteOffset, payload.byteLength);
     const result = decodeDetail(bytes);
     parentPort.postMessage({ requestId, result });
   } catch (error) {
@@ -146,10 +150,10 @@ type SubscriptionState = {
   bufferSize: number;
   buffer: RingBuffer<CartoMessage>;
   recentKeys: RecentKeysIndex;
-  detailPayloads: Map<string, Uint8Array>;
-  detailOrder: string[];
-  detailBytes: number;
-  pausedMessages: CartoMessage[];
+  detailGeneration: number;
+  pausedMessages: RingBuffer<CartoMessage>;
+  received: number;
+  skipped: number;
 };
 
 type QueryableState = {
@@ -165,13 +169,20 @@ type QueryableState = {
 };
 
 export type CartoBackend = {
+  startDiscovery: (params: DiscoveryParams) => Promise<DiscoverySnapshot>;
+  stopDiscovery: () => Promise<DiscoverySnapshot>;
+  getDiscovery: () => DiscoverySnapshot;
   setEventSink: (eventSink: CartoEventSink | null) => void;
   getStatus: () => ConnectionStatus;
   connect: (params: ConnectParams) => Promise<void>;
   testConnection: (params: ConnectionTestParams) => Promise<ConnectionTestResult>;
   disconnect: () => Promise<void>;
   subscribe: (keyexpr: string, bufferSize?: number) => Promise<string>;
-  updateSubscription: (subscriptionId: string, keyexpr: string, bufferSize?: number) => Promise<void>;
+  updateSubscription: (
+    subscriptionId: string,
+    keyexpr: string,
+    bufferSize?: number
+  ) => Promise<void>;
   unsubscribe: (subscriptionId: string) => Promise<void>;
   pause: (subscriptionId: string, paused: boolean) => Promise<void>;
   clearBuffer: (subscriptionId: string) => Promise<void>;
@@ -185,13 +196,19 @@ export type CartoBackend = {
 
 export type CartoBackendOptions = {
   createDriver?: () => ZenohDriver;
+  /** Shared raw-payload retention budget; defaults to 256 MiB. */
+  maxRetainedPayloadBytes?: number;
 };
 
 export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBackend => {
   const createDriver = options.createDriver ?? createRemoteApiWsDriver;
+  const discovery = createDiscovery(async (error) => {
+    await handleConnectionLoss(error);
+  });
   let driver: ZenohDriver | null = null;
   let eventSink: CartoEventSink | null = null;
   const subscriptions = new Map<string, SubscriptionState>();
+  const payloadCache = createPayloadCache({ maxBytes: options.maxRetainedPayloadBytes });
   const queryables = new Map<string, QueryableState>();
   const recentKeys = createRecentKeysIndex();
   let capabilities: Capabilities | null = null;
@@ -212,6 +229,7 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
       resolve: (value: DecodedPayloadDetail) => void;
       reject: (error: unknown) => void;
       timer: ReturnType<typeof setTimeout>;
+      bytes: number;
     }
   >();
   let connectToken = 0;
@@ -267,6 +285,17 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
 
   const decodePayloadDetailInWorker = (payload: Uint8Array): Promise<DecodedPayloadDetail> => {
     return new Promise((resolve, reject) => {
+      const queuedBytes = [...detailDecodePending.values()].reduce(
+        (sum, entry) => sum + entry.bytes,
+        0
+      );
+      if (
+        detailDecodePending.size >= MAX_DETAIL_DECODE_PENDING ||
+        queuedBytes + payload.byteLength > MAX_DETAIL_DECODE_PENDING_BYTES
+      ) {
+        reject(new Error('Payload inspection is busy. Select this message again to retry.'));
+        return;
+      }
       let worker: Worker;
       try {
         worker = ensureDetailDecodeWorker();
@@ -280,13 +309,19 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
         const pending = detailDecodePending.get(requestId);
         if (!pending) return;
         detailDecodePending.delete(requestId);
-        pending.reject(new Error('Detail decode timed out.'));
+        pending.reject(new Error('Detail decode timed out. Select this message again to retry.'));
+        clearDetailDecodeWorker();
       }, DETAIL_DECODE_TIMEOUT_MS);
-      detailDecodePending.set(requestId, { resolve, reject, timer });
-      worker.postMessage({
-        requestId,
-        payload: Buffer.from(payload)
-      });
+      detailDecodePending.set(requestId, { resolve, reject, timer, bytes: payload.byteLength });
+      try {
+        // Transfer an owned copy: keep retained bytes intact without a second structured-clone copy.
+        const copy = Uint8Array.from(payload);
+        worker.postMessage({ requestId, payload: copy }, [copy.buffer]);
+      } catch (error) {
+        detailDecodePending.delete(requestId);
+        clearTimeout(timer);
+        reject(error);
+      }
     });
   };
 
@@ -306,8 +341,18 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
     rendererQueue = new Map<string, CartoMessage[]>();
 
     for (const [subscriptionId, msgs] of queued.entries()) {
-      if (msgs.length === 0) continue;
-      const payload: CartoMessageBatchEvent = { subscriptionId, msgs };
+      const state = subscriptions.get(subscriptionId);
+      if (!state) continue;
+      const payload: CartoMessageBatchEvent = {
+        subscriptionId,
+        msgs,
+        capture: {
+          received: state.received,
+          skipped: state.skipped,
+          retained: state.buffer.size(),
+          limit: state.bufferSize
+        }
+      };
       eventSink?.sendMessage(payload);
     }
   };
@@ -326,6 +371,8 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
     current.push(message);
     const cap = Math.max(1, Math.min(bufferSize, MAX_RENDER_QUEUE_MESSAGES_PER_SUB));
     if (current.length > cap) {
+      const state = subscriptions.get(subscriptionId);
+      if (state) state.skipped += current.length - cap;
       current.splice(0, current.length - cap);
     }
     rendererQueue.set(subscriptionId, current);
@@ -375,36 +422,9 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
     return undefined;
   };
 
-  const cacheDetailPayload = (
-    state: SubscriptionState,
-    messageId: string,
-    payload: Uint8Array
-  ): void => {
-    if (payload.byteLength > MAX_DETAIL_CACHE_BYTES_PER_SUB) {
-      return;
-    }
-    const copy = Uint8Array.from(payload);
-    state.detailPayloads.set(messageId, copy);
-    state.detailOrder.push(messageId);
-    state.detailBytes += copy.byteLength;
-    const messageCap = Math.max(1, Math.min(state.bufferSize, MAX_DETAIL_CACHE_MESSAGES_PER_SUB));
-
-    while (
-      state.detailOrder.length > messageCap ||
-      state.detailBytes > MAX_DETAIL_CACHE_BYTES_PER_SUB
-    ) {
-      const evictedId = state.detailOrder.shift();
-      if (!evictedId) break;
-      const evictedPayload = state.detailPayloads.get(evictedId);
-      if (!evictedPayload) continue;
-      state.detailPayloads.delete(evictedId);
-      state.detailBytes = Math.max(0, state.detailBytes - evictedPayload.byteLength);
-    }
-  };
-
   const handleMessage = (subscriptionId: string, msg: DriverMessage): void => {
     const state = subscriptions.get(subscriptionId);
-    if (!state) return;
+    if (!state || !driver || explicitDisconnect) return;
     lastTrafficAt = Date.now();
 
     const decoded = decodePayload(msg.payload);
@@ -413,6 +433,9 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
     const cartoMsg: CartoMessage = {
       id,
       ts,
+      receivedAt: Date.now(),
+      kind: msg.kind,
+      wireEncoding: msg.wireEncoding,
       key: msg.key,
       encoding: decoded.encoding,
       sizeBytes: msg.payload.byteLength,
@@ -423,16 +446,17 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
       base64: decoded.base64
     };
 
+    state.received += 1;
     state.buffer.push(cartoMsg);
-    cacheDetailPayload(state, id, msg.payload);
+    payloadCache.set(state.id, id, msg.payload, state.bufferSize);
     state.recentKeys.update(cartoMsg.key, cartoMsg.sizeBytes, cartoMsg.ts);
     recentKeys.update(cartoMsg.key, cartoMsg.sizeBytes, cartoMsg.ts);
 
     if (state.paused) {
+      if (state.pausedMessages.size() === state.bufferSize) state.skipped += 1;
       state.pausedMessages.push(cartoMsg);
-      if (state.pausedMessages.length > state.bufferSize) {
-        state.pausedMessages.splice(0, state.pausedMessages.length - state.bufferSize);
-      }
+      if (!rendererQueue.has(subscriptionId)) rendererQueue.set(subscriptionId, []);
+      scheduleRendererFlush();
       return;
     }
 
@@ -569,6 +593,7 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
   };
 
   const disconnectDriver = async (clearCaps: boolean): Promise<void> => {
+    discovery.cancel();
     const activeDriver = driver;
     driver = null;
     if (clearCaps) {
@@ -584,21 +609,24 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
 
   const startHealthCheck = (): void => {
     clearHealthTimer();
-    if (!driver || healthIntervalMs <= 0 || !driver.healthCheck) return;
+    const currentDriver = driver;
+    const token = connectToken;
+    if (!currentDriver?.healthCheck || healthIntervalMs <= 0) return;
+    let pending = false;
+    const isCurrent = () => driver === currentDriver && isActiveToken(token);
     healthTimer = setInterval(async () => {
-      if (!driver || !driver.healthCheck) return;
+      if (pending || !isCurrent()) return;
+      pending = true;
       try {
         const now = Date.now();
         const hasRecentTraffic =
           subscriptions.size > 0 && lastTrafficAt > 0 && now - lastTrafficAt < healthIntervalMs;
-        if (hasRecentTraffic) {
-          updateHealth({ lastHeartbeatAt: now });
-          return;
-        }
-        await driver.healthCheck();
-        updateHealth({ lastHeartbeatAt: now });
+        if (!hasRecentTraffic) await currentDriver.healthCheck!();
+        if (isCurrent()) updateHealth({ lastHeartbeatAt: Date.now() });
       } catch (error) {
-        await handleConnectionLoss(error);
+        if (isCurrent()) await handleConnectionLoss(error);
+      } finally {
+        pending = false;
       }
     }, healthIntervalMs);
   };
@@ -608,24 +636,28 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
       throw new Error('Not connected to Zenoh.');
     }
 
-    await driver.subscribe({
+    const attachedDriver = driver;
+    await attachedDriver.subscribe({
       subscriptionId: state.id,
       keyexpr: state.keyexpr,
-      onMessage: (msg) => handleMessage(state.id, msg)
+      onMessage: (msg) => {
+        if (driver === attachedDriver) handleMessage(state.id, msg);
+      }
     });
 
-    if (state.paused && driver.pause) {
-      await driver.pause(state.id, true);
+    if (state.paused && driver === attachedDriver && attachedDriver.pause) {
+      await attachedDriver.pause(state.id, true);
     }
   };
 
   const clearSubscriptionData = (state: SubscriptionState): void => {
+    state.detailGeneration += 1;
+    state.received = 0;
+    state.skipped = 0;
     state.buffer.clear();
     state.recentKeys = createRecentKeysIndex();
-    state.detailPayloads.clear();
-    state.detailOrder = [];
-    state.detailBytes = 0;
-    state.pausedMessages = [];
+    payloadCache.clearSubscription(state.id);
+    state.pausedMessages.clear();
     rendererQueue.delete(state.id);
   };
 
@@ -674,41 +706,53 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
     const nextAttempt = reconnectAttempt + 1;
     const maxAttempts = reconnectConfig.maxAttempts;
     if (!reconnectConfig.enabled || explicitDisconnect) {
-      setConnectionState(false, {
-        state: 'disconnected',
-        lastError: reason,
-        lastDisconnectedAt: now,
-        attempt: undefined,
-        nextRetryMs: undefined
-      }, {
-        error: reason
-      });
+      setConnectionState(
+        false,
+        {
+          state: 'disconnected',
+          lastError: reason,
+          lastDisconnectedAt: now,
+          attempt: undefined,
+          nextRetryMs: undefined
+        },
+        {
+          error: reason
+        }
+      );
       return;
     }
 
     if (maxAttempts && nextAttempt > maxAttempts) {
-      setConnectionState(false, {
-        state: 'disconnected',
-        lastError: reason,
-        lastDisconnectedAt: now,
-        attempt: undefined,
-        nextRetryMs: undefined
-      }, {
-        error: `${reason} (max reconnect attempts reached)`
-      });
+      setConnectionState(
+        false,
+        {
+          state: 'disconnected',
+          lastError: reason,
+          lastDisconnectedAt: now,
+          attempt: undefined,
+          nextRetryMs: undefined
+        },
+        {
+          error: `${reason} (max reconnect attempts reached)`
+        }
+      );
       return;
     }
 
     const delay = computeBackoffDelay(reconnectAttempt || 1);
-    setConnectionState(false, {
-      state: 'reconnecting',
-      attempt: nextAttempt,
-      nextRetryMs: delay,
-      lastError: reason,
-      lastDisconnectedAt: now
-    }, {
-      error: reason
-    });
+    setConnectionState(
+      false,
+      {
+        state: 'reconnecting',
+        attempt: nextAttempt,
+        nextRetryMs: delay,
+        lastError: reason,
+        lastDisconnectedAt: now
+      },
+      {
+        error: reason
+      }
+    );
 
     reconnectTimer = setTimeout(() => {
       startConnectionAttempt('reconnecting').catch((error) => {
@@ -721,9 +765,12 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
     if (explicitDisconnect) return;
     const state = status.health?.state;
     if (state === 'connecting' || state === 'reconnecting') return;
+    if (!driver) return;
+    const token = connectToken;
     const message = getErrorMessage(error);
+    clearHealthTimer();
     await disconnectDriver(false);
-    scheduleReconnect(message);
+    if (isActiveToken(token)) scheduleReconnect(message);
   };
 
   const startConnectionAttempt = async (state: 'connecting' | 'reconnecting'): Promise<void> => {
@@ -735,15 +782,19 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
     reconnectAttempt = reconnectAttempt + 1;
     const attemptNumber = reconnectAttempt;
 
-    setConnectionState(false, {
-      state,
-      attempt: attemptNumber,
-      nextRetryMs: undefined,
-      lastError: undefined
-    }, {
-      error: undefined,
-      capabilities: capabilities ?? undefined
-    });
+    setConnectionState(
+      false,
+      {
+        state,
+        attempt: attemptNumber,
+        nextRetryMs: undefined,
+        lastError: undefined
+      },
+      {
+        error: undefined,
+        capabilities: capabilities ?? undefined
+      }
+    );
 
     const driverInstance = createDriver();
 
@@ -782,6 +833,13 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
       startHealthCheck();
       await resubscribeAll();
       await redeclareQueryables();
+      if (state === 'connecting' && connectParams.discovery?.enabled === true) {
+        try {
+          await discovery.start(driverInstance, connectParams.discovery);
+        } catch (error) {
+          logDriverError('discovery', error);
+        }
+      }
     } catch (error) {
       try {
         await driverInstance.disconnect();
@@ -804,13 +862,19 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
         : DEFAULT_TEST_TIMEOUT_MS;
 
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let finished = false;
     try {
       await applyWsOptions(params.auth, params.tls);
 
-      const connectPromise = driverInstance.connect({
-        endpoint: params.endpoint,
-        configJson: params.configJson
-      });
+      const connectPromise = driverInstance
+        .connect({
+          endpoint: params.endpoint,
+          configJson: params.configJson
+        })
+        .then(async (caps) => {
+          if (finished) await driverInstance.disconnect();
+          return caps;
+        });
       const timeoutPromise = new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => {
           reject(new Error(`Connection timed out after ${Math.round(timeoutMs / 1000)}s.`));
@@ -831,6 +895,7 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
         hint: getErrorHint(error)
       };
     } finally {
+      finished = true;
       if (timer) {
         clearTimeout(timer);
       }
@@ -851,6 +916,7 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
     clearDetailDecodeWorker();
     nextConnectToken();
 
+    payloadCache.clear();
     await disconnectDriver(true);
     setGlobalWsOptions(null);
     connectParams = null;
@@ -860,16 +926,20 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
     queryables.clear();
     recentKeys.clear();
 
-    setConnectionState(false, {
-      state: 'disconnected',
-      attempt: undefined,
-      nextRetryMs: undefined,
-      lastError: undefined,
-      lastDisconnectedAt: Date.now()
-    }, {
-      error: undefined,
-      capabilities: undefined
-    });
+    setConnectionState(
+      false,
+      {
+        state: 'disconnected',
+        attempt: undefined,
+        nextRetryMs: undefined,
+        lastError: undefined,
+        lastDisconnectedAt: Date.now()
+      },
+      {
+        error: undefined,
+        capabilities: undefined
+      }
+    );
   };
 
   const connect = async (params: ConnectParams): Promise<void> => {
@@ -886,8 +956,10 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
     clearDetailDecodeWorker();
     nextConnectToken();
 
+    payloadCache.clear();
     await disconnectDriver(true);
     subscriptions.clear();
+    discovery.reset();
     queryables.clear();
     recentKeys.clear();
 
@@ -915,10 +987,10 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
       bufferSize: size,
       buffer: createRingBuffer<CartoMessage>(size),
       recentKeys: createRecentKeysIndex(),
-      detailPayloads: new Map<string, Uint8Array>(),
-      detailOrder: [],
-      detailBytes: 0,
-      pausedMessages: []
+      detailGeneration: 0,
+      pausedMessages: createRingBuffer<CartoMessage>(size),
+      received: 0,
+      skipped: 0
     };
     subscriptions.set(subscriptionId, state);
 
@@ -926,6 +998,7 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
       await attachSubscription(state);
     } catch (error) {
       subscriptions.delete(subscriptionId);
+      payloadCache.clearSubscription(subscriptionId);
       throw error;
     }
 
@@ -957,9 +1030,9 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
       bufferSize === undefined ? state.bufferSize : normalizeSubscriptionBufferSize(bufferSize);
     state.bufferSize = nextBufferSize;
     state.buffer.setMaxSize(nextBufferSize);
-    if (state.pausedMessages.length > nextBufferSize) {
-      state.pausedMessages.splice(0, state.pausedMessages.length - nextBufferSize);
-    }
+    payloadCache.trim(state.id, state.bufferSize);
+    state.skipped += Math.max(0, state.pausedMessages.size() - nextBufferSize);
+    state.pausedMessages.setMaxSize(nextBufferSize);
 
     if (trimmedKeyexpr === state.keyexpr) {
       return;
@@ -984,6 +1057,7 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
       state.keyexpr = previousKeyexpr;
       state.bufferSize = previousBufferSize;
       state.buffer.setMaxSize(previousBufferSize);
+      state.pausedMessages.setMaxSize(previousBufferSize);
       clearSubscriptionData(state);
       try {
         await attachSubscription(state);
@@ -1008,9 +1082,7 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
     } finally {
       const state = subscriptions.get(subscriptionId);
       if (state) {
-        state.detailPayloads.clear();
-        state.detailOrder = [];
-        state.detailBytes = 0;
+        payloadCache.clearSubscription(state.id);
       }
       subscriptions.delete(subscriptionId);
       rendererQueue.delete(subscriptionId);
@@ -1024,12 +1096,18 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
     state.paused = paused;
     await driver?.pause?.(subscriptionId, paused);
 
-    if (!paused && state.pausedMessages.length > 0) {
-      const queued = state.pausedMessages;
-      state.pausedMessages = [];
+    if (!paused && state.pausedMessages.size() > 0) {
+      const queued = state.pausedMessages.toArray();
+      state.pausedMessages.clear();
       for (let index = 0; index < queued.length; index += MAX_RENDER_QUEUE_MESSAGES_PER_SUB) {
         eventSink?.sendMessage({
           subscriptionId,
+          capture: {
+            received: state.received,
+            skipped: state.skipped,
+            retained: state.buffer.size(),
+            limit: state.bufferSize
+          },
           msgs: queued.slice(index, index + MAX_RENDER_QUEUE_MESSAGES_PER_SUB)
         });
       }
@@ -1039,12 +1117,23 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
   const clearBuffer = async (subscriptionId: string): Promise<void> => {
     const state = subscriptions.get(subscriptionId);
     if (!state) return;
+    state.detailGeneration += 1;
     state.buffer.clear();
-    state.detailPayloads.clear();
-    state.detailOrder = [];
-    state.detailBytes = 0;
-    state.pausedMessages = [];
+    payloadCache.clearSubscription(state.id);
+    state.pausedMessages.clear();
+    state.received = 0;
+    state.skipped = 0;
     rendererQueue.delete(subscriptionId);
+    eventSink?.sendMessage({
+      subscriptionId,
+      msgs: [],
+      capture: {
+        received: 0,
+        skipped: 0,
+        retained: 0,
+        limit: state.bufferSize
+      }
+    });
   };
 
   const getMessage = async (
@@ -1053,28 +1142,43 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
   ): Promise<CartoMessage | null> => {
     const state = subscriptions.get(subscriptionId);
     if (!state) return null;
+    const token = connectToken;
+    const generation = state.detailGeneration;
     const summary = state.buffer.toArray().find((entry) => entry.id === messageId);
     if (!summary) return null;
-    const payload = state.detailPayloads.get(messageId);
+    const payload = payloadCache.get(subscriptionId, messageId);
     if (!payload) {
       return {
         ...summary,
-        encoding: 'text',
-        text: 'Full payload is no longer cached for this row. Increase buffer or select newer rows.'
+        payloadUnavailable:
+          'The full payload has expired or exceeded the retention limit. Select a newer message; pin important evidence while it is available.'
       };
     }
 
     let detail: DecodedPayloadDetail;
     try {
       detail = await decodePayloadDetailInWorker(payload);
-    } catch {
-      detail = decodePayloadDetail(payload);
+    } catch (error) {
+      if (
+        token !== connectToken ||
+        subscriptions.get(subscriptionId) !== state ||
+        state.detailGeneration !== generation
+      )
+        return null;
+      return { ...summary, payloadUnavailable: getErrorMessage(error) };
     }
+    if (
+      token !== connectToken ||
+      subscriptions.get(subscriptionId) !== state ||
+      state.detailGeneration !== generation
+    )
+      return null;
 
     return {
       ...summary,
       encoding: detail.encoding,
       payloadTruncated: false,
+      payloadLoaded: true,
       previewBytes: summary.sizeBytes,
       json: detail.json,
       text: detail.text,
@@ -1095,7 +1199,11 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
 
     const { payload, encoding } = params;
     const { bytes, encodingHint } = encodePublishPayload(payload, encoding);
-    await driver.publish({ keyexpr: trimmedKeyexpr, payload: bytes, encoding: encodingHint });
+    await driver.publish({
+      keyexpr: trimmedKeyexpr,
+      payload: bytes,
+      encoding: params.wireEncoding?.trim() || encodingHint
+    });
   };
 
   const declareQueryable = async (params: DeclareQueryableParams): Promise<string> => {
@@ -1180,6 +1288,13 @@ export const createCartoBackend = (options: CartoBackendOptions = {}): CartoBack
 
   return {
     setEventSink,
+    startDiscovery: async (params) => {
+      if (!driver || !status.connected)
+        throw new Error('Connect to a router before discovering traffic.');
+      return discovery.start(driver, params);
+    },
+    stopDiscovery: () => discovery.stop(),
+    getDiscovery: () => discovery.get(),
     getStatus: () => status,
     connect,
     testConnection,
@@ -1216,7 +1331,8 @@ type DecodedPayloadDetail = {
 
 const textDecoder = new TextDecoder('utf-8', { fatal: true });
 const textEncoder = new TextEncoder();
-const toBase64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64');
+const toBase64 = (bytes: Uint8Array): string =>
+  Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64');
 const clampText = (value: string, maxChars: number): string =>
   value.length > maxChars ? value.slice(0, maxChars) : value;
 const buildPreviewText = (value: string, truncated: boolean): string => {
@@ -1245,8 +1361,7 @@ const decodePayload = (payload: Uint8Array): DecodedPayload => {
       : payload;
   const previewBytes = preview.byteLength;
   const payloadTruncated = previewBytes < payload.byteLength;
-  const fullBase64 =
-    payload.byteLength <= MAX_BASE64_PREVIEW_BYTES ? toBase64(payload) : undefined;
+  const fullBase64 = payload.byteLength <= MAX_BASE64_PREVIEW_BYTES ? toBase64(payload) : undefined;
 
   let text: string | undefined;
   try {
@@ -1256,7 +1371,10 @@ const decodePayload = (payload: Uint8Array): DecodedPayload => {
   }
 
   if (!text) {
-    const binaryPreviewBytes = preview.subarray(0, Math.min(preview.byteLength, MAX_BASE64_PREVIEW_BYTES));
+    const binaryPreviewBytes = preview.subarray(
+      0,
+      Math.min(preview.byteLength, MAX_BASE64_PREVIEW_BYTES)
+    );
     const base64 = toBase64(binaryPreviewBytes);
     const base64Text = `base64:${base64}`;
     return {
@@ -1294,7 +1412,10 @@ const decodePayload = (payload: Uint8Array): DecodedPayload => {
     };
   }
 
-  const binaryPreviewBytes = preview.subarray(0, Math.min(preview.byteLength, MAX_BASE64_PREVIEW_BYTES));
+  const binaryPreviewBytes = preview.subarray(
+    0,
+    Math.min(preview.byteLength, MAX_BASE64_PREVIEW_BYTES)
+  );
   const base64 = toBase64(binaryPreviewBytes);
   const base64Text = `base64:${base64}`;
   return {
@@ -1307,43 +1428,10 @@ const decodePayload = (payload: Uint8Array): DecodedPayload => {
   };
 };
 
-const decodePayloadDetail = (payload: Uint8Array): DecodedPayloadDetail => {
-  if (payload.byteLength === 0) {
-    return { encoding: 'binary', base64: '' };
-  }
-
-  let text: string | undefined;
-  try {
-    text = textDecoder.decode(payload);
-  } catch {
-    text = undefined;
-  }
-
-  if (!text) {
-    return { encoding: 'binary', base64: toBase64(payload) };
-  }
-
-  const trimmed = text.trim();
-  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-    try {
-      const json = JSON.parse(trimmed) as unknown;
-      return { encoding: 'json', json };
-    } catch {
-      // fall through to text detection
-    }
-  }
-
-  if (isMostlyPrintable(text)) {
-    return { encoding: 'text', text };
-  }
-
-  return { encoding: 'binary', base64: toBase64(payload) };
-};
-
 const isMostlyPrintable = (value: string): boolean => {
   if (value.length === 0) return true;
   let controlChars = 0;
-  for (let i = 0; i < value.length; ) {
+  for (let i = 0; i < value.length;) {
     const code = value.codePointAt(i);
     if (code === undefined) break;
     if (code < 32 && code !== 9 && code !== 10 && code !== 13) {

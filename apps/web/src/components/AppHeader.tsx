@@ -1,7 +1,6 @@
+import { Button } from './ui/button';
 import type { ConnectionHealth } from '@shared/types';
-import type { Subscription } from '../store/useCarto';
-import type { AppView } from '../types/navigation';
-import { IconCopy, IconLinkOff, IconPause, IconPlay, IconTrash } from './Icons';
+import { IconCopy, IconLinkOff } from './Icons';
 
 type ActionNotice = {
   type: 'ok' | 'error';
@@ -9,6 +8,7 @@ type ActionNotice = {
 };
 
 type AppHeaderProps = {
+  quietConnection?: boolean;
   viewTitle: string;
   viewDescription: string;
   statusConnected: boolean;
@@ -19,15 +19,12 @@ type AppHeaderProps = {
   copied: boolean;
   lastEndpoint: string;
   onCopyEndpoint: () => Promise<void>;
-  view: AppView;
-  selectedSub?: Subscription;
-  onTogglePause: () => Promise<void>;
-  onClearBuffer: () => Promise<void>;
   actionNotice: ActionNotice | null;
   onDisconnect: () => Promise<void>;
 };
 
 const AppHeader = ({
+  quietConnection = false,
   viewTitle,
   viewDescription,
   statusConnected,
@@ -38,10 +35,6 @@ const AppHeader = ({
   copied,
   lastEndpoint,
   onCopyEndpoint,
-  view,
-  selectedSub,
-  onTogglePause,
-  onClearBuffer,
   actionNotice,
   onDisconnect
 }: AppHeaderProps) => {
@@ -86,7 +79,6 @@ const AppHeader = ({
     }
     return '';
   })();
-
   return (
     <header className="app_header">
       <div className="app_header-left">
@@ -104,7 +96,9 @@ const AppHeader = ({
             {statusConnected ? 'Endpoint' : 'Last endpoint'}
           </span>{' '}
           <span className="header-endpoint_value">{endpointLabel}</span>{' '}
-          <button
+          <Button
+            variant="outline"
+            size="icon-sm"
             className="icon-button icon-button--compact icon-button--ghost"
             onClick={() => onCopyEndpoint().catch(() => {})}
             disabled={!lastEndpoint || !canCopyEndpoint}
@@ -115,38 +109,16 @@ const AppHeader = ({
             <span className="icon-button_icon" aria-hidden="true">
               <IconCopy />
             </span>
-          </button>
+          </Button>
         </div>
         <div className="app_actions">
-          {view === 'monitor' && selectedSub ? (
-            <>
-              <button
-                className="button button--ghost button--compact"
-                onClick={() => onTogglePause().catch(() => {})}
-                title="Pause or resume (Ctrl/Cmd+Shift+P)"
-                type="button"
-              >
-                <span className="button_icon" aria-hidden="true">
-                  {selectedSub.paused ? <IconPlay /> : <IconPause />}
-                </span>{' '}
-                {selectedSub.paused ? 'Resume' : 'Pause'}
-              </button>
-              <button
-                className="button button--ghost button--compact"
-                onClick={() => onClearBuffer().catch(() => {})}
-                title="Clear buffer (Ctrl/Cmd+Shift+K)"
-                type="button"
-              >
-                <span className="button_icon" aria-hidden="true">
-                  <IconTrash />
-                </span>{' '}
-                Clear buffer
-              </button>
-            </>
-          ) : null}
           {statusConnected ? (
-            <button
-              className="button button--danger button--compact"
+            <Button
+              variant={quietConnection ? 'ghost' : 'destructive'}
+              size="sm"
+              className={
+                quietConnection ? 'text-muted-foreground' : 'button button--danger button--compact'
+              }
               onClick={() => onDisconnect().catch(() => {})}
               title="Disconnect (Ctrl/Cmd+Shift+D)"
               type="button"
@@ -155,7 +127,7 @@ const AppHeader = ({
                 <IconLinkOff />
               </span>{' '}
               Disconnect
-            </button>
+            </Button>
           ) : null}
           {actionNotice ? (
             <span className={`header-notice header-notice--${actionNotice.type}`}>

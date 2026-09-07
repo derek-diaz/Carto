@@ -1,5 +1,4 @@
 /* stylelint-disable no-duplicate-selectors -- This stylesheet intentionally keeps layered theme and responsive overrides. */
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap');
 
 :root {
   color-scheme: light;
@@ -1420,73 +1419,6 @@ body::after {
   font-size: 10px;
   letter-spacing: 0.1em;
   color: var(--muted);
-}
-
-.logs_toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: flex-end;
-}
-
-.logs_search {
-  min-width: 200px;
-  flex: 1;
-}
-
-.logs_list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: 520px;
-  overflow: auto;
-}
-
-.log_row {
-  background: var(--panel-strong);
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
-  padding: 8px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.log_row--error {
-  border-color: rgba(208, 75, 69, 0.4);
-}
-
-.log_row--warn {
-  border-color: rgba(217, 119, 6, 0.45);
-}
-
-.log_meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--muted);
-}
-
-.log_time {
-  font-family: var(--font-mono);
-}
-
-.log_level {
-  font-weight: 600;
-}
-
-.log_message {
-  font-size: 13px;
-  color: var(--text);
-}
-
-.log_detail {
-  font-size: 12px;
-  color: var(--muted);
-  white-space: pre-wrap;
 }
 
 .toast_stack {

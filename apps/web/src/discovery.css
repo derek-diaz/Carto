@@ -1,0 +1,75 @@
+/* Tree indentation is shared by every nesting level; controls use the UI kit. */
+.discovery-key-tree ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.discovery-key-tree ul ul {
+  margin-left: 12px;
+  padding-left: 9px;
+  border-left: 1px solid var(--border);
+}
+.discovery-key-tree summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  border-radius: 6px;
+}
+.discovery-key-tree summary::-webkit-details-marker {
+  display: none;
+}
+.discovery-key-tree summary::before {
+  content: '›';
+  width: 10px;
+  color: var(--muted-foreground);
+}
+.discovery-key-tree details[open] > summary::before {
+  transform: rotate(90deg);
+}
+.discovery-key-tree summary > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.discovery-key-tree small {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+}
+.discovery-key-tree li button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 9px;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--foreground);
+  text-align: left;
+  border-radius: 7px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.discovery-key-tree li button > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.discovery-key-tree :is(summary, button):hover {
+  background: color-mix(in srgb, var(--primary) 5%, transparent);
+}
+.discovery-key-tree li button.is-selected {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 20%, transparent);
+}
+.discovery-key-tree :is(button, summary):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}

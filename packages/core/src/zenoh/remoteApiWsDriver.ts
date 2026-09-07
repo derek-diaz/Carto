@@ -53,7 +53,9 @@ const importZenohModule = new Function('specifier', 'return import(specifier);')
 
 let cachedContainerLocalTarget: string | null | undefined;
 
-export const createRemoteApiWsDriver = (): ZenohDriver => {
+export const createRemoteApiWsDriver = (
+  options: { loadModule?: typeof importZenohModule } = {}
+): ZenohDriver => {
   let session: ZenohSession | null = null;
   const subscriptions = new Map<string, SubscriptionHandle>();
   const queryables = new Map<string, QueryableHandle>();
@@ -61,7 +63,7 @@ export const createRemoteApiWsDriver = (): ZenohDriver => {
   const loadZenohModule = async (): Promise<ZenohModule> => {
     try {
       const modulePath = '@eclipse-zenoh/zenoh-ts';
-      return (await importZenohModule(modulePath)) as ZenohModule;
+      return (await (options.loadModule ?? importZenohModule)(modulePath)) as ZenohModule;
     } catch (error) {
       const details = error instanceof Error ? error.message : String(error);
       throw new Error(
@@ -381,12 +383,15 @@ export const createRemoteApiWsDriver = (): ZenohDriver => {
   };
 
   const disconnect = async (): Promise<void> => {
-    await closeAllSubscriptions();
-    await closeAllQueryables();
-    if (session?.close) {
-      await session.close();
-    }
+    const currentSession = session;
     session = null;
+    const results = await Promise.allSettled([closeAllSubscriptions(), closeAllQueryables()]);
+    // A failed undeclare must never prevent closing the underlying transport.
+    const [closed] = await Promise.allSettled([
+      Promise.resolve().then(() => currentSession?.close?.())
+    ]);
+    const failure = [...results, closed].find((result) => result.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
   };
 
   const healthCheck = async (): Promise<void> => {
@@ -411,18 +416,34 @@ export const createRemoteApiWsDriver = (): ZenohDriver => {
       const key = extractKey(sample, options.keyexpr);
       const payload = extractPayload(sample);
       const ts = extractTimestamp(sample);
-      options.onMessage({ key, payload, ts });
+      const record =
+        sample && typeof sample === 'object' ? (sample as Record<string, unknown>) : {};
+      const rawKind = resolveCandidate(sample, record.kind);
+      const rawEncoding = resolveCandidate(sample, record.encoding);
+      const kind =
+        rawKind === 1 || String(rawKind).toLowerCase() === 'delete'
+          ? 'delete'
+          : rawKind === 0 || String(rawKind).toLowerCase() === 'put'
+            ? 'put'
+            : undefined;
+      const wireEncoding = rawEncoding == null ? undefined : String(rawEncoding);
+      options.onMessage({ key, payload, ts, kind, wireEncoding });
     };
 
+    const currentSession = session;
     const subscription =
-      (await session.declareSubscriber?.(options.keyexpr, { handler })) ??
-      (await session.subscribe?.(options.keyexpr, handler)) ??
-      (await session.createSubscriber?.(options.keyexpr, handler));
+      (await currentSession.declareSubscriber?.(options.keyexpr, { handler })) ??
+      (await currentSession.subscribe?.(options.keyexpr, handler)) ??
+      (await currentSession.createSubscriber?.(options.keyexpr, handler));
 
     if (!subscription) {
       throw new Error('Zenoh session does not support subscriptions.');
     }
 
+    if (session !== currentSession) {
+      await closeSubscription(subscription);
+      throw new Error('Connection closed while subscribing.');
+    }
     subscriptions.set(options.subscriptionId, {
       close: () => closeSubscription(subscription)
     });
@@ -455,12 +476,18 @@ export const createRemoteApiWsDriver = (): ZenohDriver => {
         session as unknown as { createPublisher?: (keyexpr: string) => Promise<unknown> }
       ).createPublisher?.(options.keyexpr));
     if (!publisher || typeof (publisher as { put?: unknown }).put !== 'function') {
+      if (publisher) await closePublisher(publisher);
       throw new Error('Zenoh session does not support publishing.');
     }
 
-    await (
-      publisher as { put: (payload: Uint8Array, opts?: { encoding?: string }) => Promise<void> }
-    ).put(options.payload, putOptions);
+    try {
+      await (
+        publisher as { put: (payload: Uint8Array, opts?: { encoding?: string }) => Promise<void> }
+      ).put(options.payload, putOptions);
+    } catch (error) {
+      await closePublisher(publisher).catch(() => {});
+      throw error;
+    }
     await closePublisher(publisher);
   };
 
@@ -501,7 +528,8 @@ export const createRemoteApiWsDriver = (): ZenohDriver => {
       }
     };
 
-    const queryable = await session.declareQueryable(options.keyexpr, {
+    const currentSession = session;
+    const queryable = await currentSession.declareQueryable!(options.keyexpr, {
       handler: (query) => {
         void handleQuery(query);
       },
@@ -512,6 +540,10 @@ export const createRemoteApiWsDriver = (): ZenohDriver => {
       throw new Error('Zenoh session does not support queryables.');
     }
 
+    if (session !== currentSession) {
+      await closeQueryable(queryable);
+      throw new Error('Connection closed while declaring queryable.');
+    }
     queryables.set(options.queryableId, {
       close: () => closeQueryable(queryable)
     });
@@ -549,7 +581,7 @@ const toUint8Array = (payload: unknown): Uint8Array => {
     return new Uint8Array(payload);
   }
   if (ArrayBuffer.isView(payload)) {
-    return new Uint8Array(payload.buffer);
+    return new Uint8Array(payload.buffer, payload.byteOffset, payload.byteLength);
   }
   if (typeof payload === 'string') {
     return textEncoder.encode(payload);

@@ -18,6 +18,10 @@ const createClientId = (): string => {
 };
 
 class WebCartoClient implements CartoApi {
+  startDiscovery: CartoApi['startDiscovery'] = (params) =>
+    this.request('/api/discovery/start', params);
+  stopDiscovery: CartoApi['stopDiscovery'] = () => this.request('/api/discovery/stop');
+  getDiscovery: CartoApi['getDiscovery'] = () => this.request('/api/discovery');
   private readonly messageListeners: ListenerSet<CartoMessagePayload> = new Set();
   private readonly statusListeners: ListenerSet<ConnectionStatus> = new Set();
   private socket: WebSocket | null = null;
@@ -153,6 +157,15 @@ class WebCartoClient implements CartoApi {
         return;
       }
       if (this.stopped) return;
+      this.statusListeners.forEach((listener) =>
+        listener({
+          connected: false,
+          health: {
+            state: 'reconnecting',
+            lastError: event.reason || 'The live event connection was interrupted.'
+          }
+        })
+      );
       this.scheduleReconnect();
     });
 

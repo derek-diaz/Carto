@@ -28,13 +28,15 @@ const getJsonTokenType = (token: string, source: string, startIndex: number): Js
   return 'number';
 };
 
-export const highlightJson = (json: string, keyPrefix = ''): ReactNode[] => {
+export const highlightJson = (json: string, keyPrefix = '', maxTokens = 2000): ReactNode[] => {
   const tokens: ReactNode[] = [];
   let startIndex = 0;
   jsonTokenPattern.lastIndex = 0;
   let match = jsonTokenPattern.exec(json);
 
   while (match) {
+    // Dense arrays can contain thousands of tokens in just a few kilobytes.
+    if (tokens.length >= maxTokens) return [json];
     const index = match.index;
     const token = match[0];
     if (index > startIndex) {
@@ -42,7 +44,7 @@ export const highlightJson = (json: string, keyPrefix = ''): ReactNode[] => {
     }
     const tokenType = getJsonTokenType(token, json, index);
     tokens.push(
-      <span className={`json_token json_token--${tokenType}`} key={`${keyPrefix}${index}-${token}`}>
+      <span className={`json_token json_token--${tokenType}`} key={`${keyPrefix}${index}`}>
         {token}
       </span>
     );

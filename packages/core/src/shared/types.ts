@@ -1,6 +1,11 @@
 export type CartoMessage = {
   id: string;
   ts: number;
+  receivedAt?: number;
+  kind?: 'put' | 'delete';
+  wireEncoding?: string;
+  payloadUnavailable?: string;
+  payloadLoaded?: boolean;
   key: string;
   encoding: 'json' | 'text' | 'binary';
   sizeBytes: number;
@@ -21,6 +26,14 @@ export type CartoMessageEvent = {
 export type CartoMessageBatchEvent = {
   subscriptionId: string;
   msgs: CartoMessage[];
+  capture?: CaptureStats;
+};
+
+export type CaptureStats = {
+  received: number;
+  skipped: number;
+  retained: number;
+  limit: number;
 };
 
 export type CartoMessagePayload = CartoMessageEvent | CartoMessageBatchEvent;
@@ -49,6 +62,7 @@ export type RecentKeyStats = {
 };
 
 export type ConnectParams = {
+  discovery?: DiscoveryParams & { enabled: boolean };
   endpoint: string;
   mode?: 'client';
   configJson?: string;
@@ -56,6 +70,30 @@ export type ConnectParams = {
   tls?: TlsConfig;
   reconnect?: ReconnectConfig;
   healthCheckIntervalMs?: number;
+};
+
+export type DiscoveryParams = { keyexpr: string; durationSeconds: number };
+export type DiscoveredKey = RecentKeyStats & {
+  preview: string;
+  /** Exact bytes behind the bounded preview, for structured decoding. */
+  previewBase64?: string;
+  previewTruncated: boolean;
+  wireEncoding?: string;
+  kind?: 'put' | 'delete';
+};
+export type DiscoverySnapshot = {
+  state: 'idle' | 'starting' | 'running' | 'stopping' | 'complete' | 'error';
+  keyexpr: string;
+  durationSeconds: number;
+  startedAt?: number;
+  endedAt?: number;
+  reason?: 'timeout' | 'stopped' | 'disconnected';
+  error?: string;
+  received: number;
+  bytes: number;
+  limit: number;
+  omitted: number;
+  keys: DiscoveredKey[];
 };
 
 export type AuthConfig = {
@@ -148,6 +186,7 @@ export type PublishParams = {
   keyexpr: string;
   payload: string;
   encoding: PublishEncoding;
+  wireEncoding?: string;
 };
 
 export type QueryableInfo = {

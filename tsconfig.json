@@ -14,6 +14,7 @@
     "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
+      "@/*": ["apps/web/src/*"],
       "@shared/*": ["packages/core/src/shared/*"],
       "@core/*": ["packages/core/src/*"]
     }

@@ -4,6 +4,8 @@ export type DriverMessage = {
   key: string;
   payload: Uint8Array;
   ts?: number;
+  kind?: 'put' | 'delete';
+  wireEncoding?: string;
 };
 
 export type DriverStatus = {

@@ -1,15 +1,13 @@
+import { notificationManager } from './components/ui/notifications';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import * as protobuf from 'protobufjs';
 import type { CartoMessage, ConnectionStatus } from '@shared/types';
 import AppHeader from './components/AppHeader';
 import AppRail from './components/AppRail';
 import AboutView from './components/AboutView';
 import ConnectionView from './components/ConnectionView';
-import LogsView from './components/LogsView';
 import MonitorView from './components/MonitorView';
 import PublishView from './components/PublishView';
 import SettingsView from './components/SettingsView';
-import ToastStack from './components/ToastStack';
 import UpdateBanner from './components/UpdateBanner';
 import {
   DEFAULT_PUBLISH_JSON,
@@ -17,13 +15,20 @@ import {
   type PublishDraft
 } from './components/PublishPanel';
 import { useCarto } from './store/useCarto';
-import type { LogEntry, LogInput, Toast, ToastInput } from './utils/notifications';
+import { useDiscovery } from './store/useDiscovery';
+import { useAppNavigation } from './hooks/useAppNavigation';
+import { useSidebarState } from './hooks/useSidebarState';
+import type { LogEntry, LogInput, ToastInput } from './utils/notifications';
 import {
   decodeProtoPayloadCandidate,
   encodeProtoPayload,
+  prepareProtoPayload,
   generateProtoSamplePayload,
   parseDecoderConfig,
   parseProtoSchema,
+  mergeProtoSchemas,
+  prepareProtoSchemas,
+  type ProtoSource,
   resolveDecoderTypeIds,
   type DecoderConfig,
   type ProtoDecodeCandidate,
@@ -33,11 +38,9 @@ import {
 } from './utils/proto';
 import { base64ToBytes, bytesToBase64 } from './utils/base64';
 import { useReleaseCheck } from './hooks/useReleaseCheck';
-import type { AppView } from './types/navigation';
 import pkg from '../../../package.json';
 
 const MAX_LOGS = 200;
-const MAX_TOASTS = 4;
 const DEFAULT_TOAST_MS = 3500;
 const ERROR_TOAST_MS = 6000;
 const PROTO_STORAGE_KEY = 'carto.proto.schemas';
@@ -193,6 +196,7 @@ const rewriteDecoderTypeIds = (
 };
 
 const App = () => {
+  const sidebar = useSidebarState();
   const currentVersion = appInfo.version ?? '0.0.0';
   const { state: releaseState, checkNow: checkForUpdates } = useReleaseCheck(currentVersion);
   const [dismissedRelease, setDismissedRelease] = useState(() => {
@@ -226,6 +230,7 @@ const App = () => {
     recentKeysFilter,
     setRecentKeysFilter,
     selectedMessages,
+    captureById,
     connect,
     testConnection,
     disconnect,
@@ -239,10 +244,10 @@ const App = () => {
     declareQueryable,
     undeclareQueryable
   } = useCarto();
+  const discovery = useDiscovery(status.connected);
+  const [discoveryOpen, setDiscoveryOpen] = useState(true);
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const toastTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const prevStatusRef = useRef<ConnectionStatus | null>(null);
   const prevConnectedRef = useRef(status.connected);
   const [protoSchemas, setProtoSchemas] = useState<ProtoSchema[]>([]);
@@ -251,8 +256,10 @@ const App = () => {
   >({});
 
   const [selectedMessage, setSelectedMessage] = useState<CartoMessage | null>(null);
+  const [pinnedMessages, setPinnedMessages] = useState<CartoMessage[]>([]);
   const selectedMessageRequestRef = useRef(0);
   const [copied, setCopied] = useState(false);
+  const publishModeDraftsRef = useRef<Partial<Record<PublishDraft['encoding'], PublishDraft>>>({});
   const [publishDraft, setPublishDraft] = useState<PublishDraft>({
     keyexpr: DEFAULT_PUBLISH_KEYEXPR,
     encoding: 'json',
@@ -283,42 +290,15 @@ const App = () => {
     };
   }, []);
 
-  const dismissToast = useCallback((id: string) => {
-    setToasts((prev) => prev.filter((toast) => toast.id !== id));
-    const timer = toastTimers.current.get(id);
-    if (timer) {
-      clearTimeout(timer);
-      toastTimers.current.delete(id);
-    }
+  const addToast = useCallback((toast: ToastInput) => {
+    notificationManager.add({
+      title: toast.message,
+      description: toast.detail,
+      type: toast.type,
+      timeout: toast.durationMs ?? (toast.type === 'error' ? ERROR_TOAST_MS : DEFAULT_TOAST_MS),
+      priority: toast.type === 'error' ? 'high' : 'low'
+    });
   }, []);
-
-  const addToast = useCallback(
-    (toast: ToastInput) => {
-      const id = createId();
-      const entry: Toast = { ...toast, id, ts: Date.now() };
-      setToasts((prev) => {
-        const next = [entry, ...prev];
-        const trimmed = next.slice(0, MAX_TOASTS);
-        const trimmedIds = new Set(trimmed.map((item) => item.id));
-        for (const item of prev) {
-          if (!trimmedIds.has(item.id)) {
-            const timer = toastTimers.current.get(item.id);
-            if (timer) clearTimeout(timer);
-            toastTimers.current.delete(item.id);
-          }
-        }
-        return trimmed;
-      });
-
-      const durationMs =
-        toast.durationMs ?? (toast.type === 'error' ? ERROR_TOAST_MS : DEFAULT_TOAST_MS);
-      if (durationMs > 0) {
-        const timer = setTimeout(() => dismissToast(id), durationMs);
-        toastTimers.current.set(id, timer);
-      }
-    },
-    [dismissToast]
-  );
 
   const addLog = useCallback((entry: LogInput) => {
     setLogs((prev) => {
@@ -343,14 +323,8 @@ const App = () => {
 
   const mergedProtoRoot = useMemo(() => {
     if (protoSchemas.length === 0) return null;
-    const root = new protobuf.Root();
     try {
-      for (let index = protoSchemas.length - 1; index >= 0; index -= 1) {
-        const schema = protoSchemas[index];
-        if (!schema) continue;
-        protobuf.parse(schema.source, root);
-      }
-      return root;
+      return mergeProtoSchemas(protoSchemas);
     } catch {
       return null;
     }
@@ -399,35 +373,41 @@ const App = () => {
   }, []);
 
   const addProtoSchema = useCallback(
-    (name: string, source: string): boolean => {
+    (files: ProtoSource[]): { ok: boolean; error?: string } => {
       try {
-        const schemaId = createId();
-        const schema = parseProtoSchema(schemaId, name, source);
-        setProtoSchemas((prev) => {
-          const next = [schema, ...prev];
-          persistProtoSchemas(next);
-          return next;
+        const next = prepareProtoSchemas(protoSchemas, files, createId);
+        persistProtoSchemas(next);
+        setProtoSchemas(next);
+        const names = files.map((file) => file.name).join(', ');
+        addToast({
+          type: 'ok',
+          message: files.length === 1 ? 'Schema added' : `${files.length} schemas added`,
+          detail: names
         });
-        addToast({ type: 'ok', message: 'Schema added', detail: name });
-        addLog({ level: 'info', source: 'protobuf', message: `Schema added: ${name}.` });
-        return true;
+        addLog({ level: 'info', source: 'protobuf', message: `Schemas added: ${names}.` });
+        return { ok: true };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         addToast({ type: 'error', message: 'Failed to parse schema', detail: message });
         addLog({ level: 'error', source: 'protobuf', message });
-        return false;
+        return { ok: false, error: message };
       }
     },
-    [addLog, addToast, persistProtoSchemas]
+    [addLog, addToast, persistProtoSchemas, protoSchemas]
   );
 
   const removeProtoSchema = useCallback(
     (schemaId: string) => {
-      setProtoSchemas((prev) => {
-        const next = prev.filter((schema) => schema.id !== schemaId);
+      const next = protoSchemas.filter((schema) => schema.id !== schemaId);
+      try {
+        mergeProtoSchemas(next);
         persistProtoSchemas(next);
-        return next;
-      });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        addToast({ type: 'error', message: 'Cannot remove a required schema', detail });
+        return;
+      }
+      setProtoSchemas(next);
       setSubscriptionDecoders((prev) => {
         const next = { ...prev };
         Object.entries(next).forEach(([key, decoder]) => {
@@ -450,7 +430,7 @@ const App = () => {
       addToast({ type: 'info', message: 'Schema removed' });
       addLog({ level: 'info', source: 'protobuf', message: 'Schema removed.' });
     },
-    [addLog, addToast, persistProtoSchemas]
+    [addLog, addToast, persistProtoSchemas, protoSchemas]
   );
 
   const decodeProtobuf = useCallback(
@@ -500,7 +480,8 @@ const App = () => {
           data: best.data,
           label: best.handle.name,
           schemaName: best.handle.schemaName,
-          typeId: best.handle.id
+          typeId: best.handle.id,
+          exact: best.exact
         };
       }
 
@@ -571,10 +552,22 @@ const App = () => {
   }, [addLog, addToast, status]);
 
   const selectedSub = subscriptions.find((sub) => sub.id === selectedSubId);
+  const [pinnedContext, setPinnedContext] = useState<
+    Record<
+      string,
+      {
+        protoResult: ReturnType<typeof decodeProtobuf>;
+        subscriptionLabel?: string;
+      }
+    >
+  >({});
   const selectedDecoder = selectedSubId ? subscriptionDecoders[selectedSubId] : undefined;
   const protoResult = useMemo(
-    () => decodeProtobuf(selectedDecoder, selectedMessage),
-    [decodeProtobuf, selectedDecoder, selectedMessage]
+    () =>
+      selectedMessage && pinnedContext[selectedMessage.id]
+        ? pinnedContext[selectedMessage.id].protoResult
+        : decodeProtobuf(selectedDecoder, selectedMessage),
+    [decodeProtobuf, selectedDecoder, selectedMessage, pinnedContext]
   );
   const resolveProtobufPreview = useCallback(
     async (message: CartoMessage): Promise<string | null> => {
@@ -594,7 +587,7 @@ const App = () => {
     [decodeProtobuf, getMessage, selectedDecoder, selectedSubId]
   );
   const activeKeys = recentKeys;
-  const [view, setView] = useState<AppView>(status.connected ? 'monitor' : 'connection');
+  const [view, setView] = useAppNavigation();
   const [monitorTab, setMonitorTab] = useState<'stream' | 'keys'>('stream');
 
   useEffect(() => {
@@ -602,8 +595,11 @@ const App = () => {
     prevConnectedRef.current = status.connected;
     if (
       !status.connected &&
+      subscriptions.length === 0 &&
+      pinnedMessages.length === 0 &&
+      !discovery.snapshot?.startedAt &&
       status.health?.state === 'disconnected' &&
-      view !== 'logs' &&
+      view !== 'publish' &&
       view !== 'settings' &&
       view !== 'about'
     ) {
@@ -613,7 +609,15 @@ const App = () => {
     if (!wasConnected && status.connected && view === 'connection') {
       setView('monitor');
     }
-  }, [status.connected, status.health?.state, view]);
+  }, [
+    status.connected,
+    status.health?.state,
+    view,
+    setView,
+    subscriptions.length,
+    pinnedMessages.length,
+    discovery.snapshot?.startedAt
+  ]);
 
   useEffect(() => {
     if (subscriptions.length === 0) {
@@ -704,7 +708,8 @@ const App = () => {
             keyexpr: key,
             encoding: entry.encoding,
             payload: entry.payload,
-            protoTypeId: entry.protoTypeId
+            protoTypeId: entry.protoTypeId,
+            wireEncoding: typeof entry.wireEncoding === 'string' ? entry.wireEncoding : undefined
           };
         });
         return next;
@@ -913,7 +918,9 @@ const App = () => {
                 payload: entry.payload,
                 protoTypeId: entry.protoTypeId
                   ? (typeIdRewrites.get(entry.protoTypeId) ?? entry.protoTypeId)
-                  : undefined
+                  : undefined,
+                wireEncoding:
+                  typeof entry.wireEncoding === 'string' ? entry.wireEncoding : undefined
               };
             }
           );
@@ -1020,14 +1027,6 @@ const App = () => {
     return () => globalThis.clearTimeout(timer);
   }, [actionNotice]);
 
-  useEffect(() => {
-    const timers = toastTimers.current;
-    return () => {
-      timers.forEach((timer) => clearTimeout(timer));
-      timers.clear();
-    };
-  }, []);
-
   const publishSupport = useMemo<'supported' | 'unknown' | 'unsupported'>(() => {
     const features = status.capabilities?.features;
     if (!features || features.length === 0) return 'unknown';
@@ -1046,8 +1045,6 @@ const App = () => {
         return 'Monitor';
       case 'publish':
         return 'Publish';
-      case 'logs':
-        return 'Logs';
       case 'settings':
         return 'Settings';
       case 'about':
@@ -1069,9 +1066,6 @@ const App = () => {
         return 'Publishing disabled by this router.';
       }
       return 'Publishing capability unknown.';
-    }
-    if (view === 'logs') {
-      return 'Connection events and errors.';
     }
     if (view === 'settings') {
       return 'Manage defaults, history, backups, and schemas.';
@@ -1096,12 +1090,30 @@ const App = () => {
     }
   }, [canCopyEndpoint, lastEndpoint]);
 
+  const validateProtoDraft = useCallback(
+    (typeId: string, payload: string): string | null => {
+      const handle = protoTypeById.get(typeId);
+      if (!handle) return 'Add the required schema and choose a message type.';
+      try {
+        const parsed: unknown = JSON.parse(payload);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+          return 'Protobuf payload must be a JSON object.';
+        prepareProtoPayload(handle, parsed);
+        return null;
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+    },
+    [protoTypeById]
+  );
+
   const handlePublish = useCallback(
     async (
       keyexpr: string,
       payload: string,
       encoding: PublishDraft['encoding'],
-      protoTypeId?: string
+      protoTypeId?: string,
+      wireEncoding?: string
     ) => {
       if (encoding === 'protobuf') {
         if (!protoTypeId) {
@@ -1120,12 +1132,12 @@ const App = () => {
         }
         const bytes = encodeProtoPayload(handle, parsed);
         const encoded = bytesToBase64(bytes);
-        await publish(keyexpr, encoded, 'base64');
-        setLastPublish({ keyexpr, payload, encoding, protoTypeId });
+        await publish(keyexpr, encoded, 'base64', wireEncoding?.trim() || 'application/protobuf');
+        setLastPublish({ keyexpr, payload, encoding, protoTypeId, wireEncoding });
         return;
       }
-      await publish(keyexpr, payload, encoding);
-      setLastPublish({ keyexpr, payload, encoding });
+      await publish(keyexpr, payload, encoding, wireEncoding);
+      setLastPublish({ keyexpr, payload, encoding, wireEncoding });
     },
     [protoTypeById, publish]
   );
@@ -1210,37 +1222,41 @@ const App = () => {
   );
 
   const handleTogglePause = useCallback(async () => {
-    if (!selectedSub || !status.connected) return;
+    if (!selectedSub || !status.connected || discoveryOpen) return;
     await setPaused(selectedSub.id, !selectedSub.paused);
-  }, [selectedSub, setPaused, status.connected]);
+  }, [selectedSub, setPaused, status.connected, discoveryOpen]);
 
   const handleClearBuffer = useCallback(async () => {
-    if (!selectedSub || !status.connected) return;
+    if (!selectedSub || !status.connected || discoveryOpen) return;
     await clearBuffer(selectedSub.id);
     selectedMessageRequestRef.current += 1;
     setSelectedMessage(null);
-  }, [clearBuffer, selectedSub, status.connected]);
+  }, [clearBuffer, selectedSub, status.connected, discoveryOpen]);
 
   const handleSelectMessage = useCallback(
     async (msg: CartoMessage) => {
+      const requestId = ++selectedMessageRequestRef.current;
       setSelectedMessage(msg);
+      if (msg.payloadLoaded && !msg.payloadTruncated && !msg.payloadUnavailable) return;
       if (!selectedSubId) return;
-      const requestId = selectedMessageRequestRef.current + 1;
-      selectedMessageRequestRef.current = requestId;
       try {
         const full = await getMessage(selectedSubId, msg.id);
         if (selectedMessageRequestRef.current !== requestId) return;
         if (!full) {
           setSelectedMessage({
             ...msg,
-            encoding: 'text',
-            text: 'Message is no longer available.'
+            payloadUnavailable: 'This payload has expired from memory. Select a newer message.'
           });
           return;
         }
         setSelectedMessage(full);
       } catch {
-        // ignore detail fetch errors and keep lightweight row payload
+        if (selectedMessageRequestRef.current === requestId)
+          setSelectedMessage({
+            ...msg,
+            payloadUnavailable:
+              'The full payload could not be loaded. Select this message again to retry.'
+          });
       }
     },
     [getMessage, selectedSubId]
@@ -1249,7 +1265,6 @@ const App = () => {
   const handleDisconnect = useCallback(async () => {
     try {
       await disconnect();
-      setSubscriptionDecoders({});
     } catch {
       // ignore disconnect errors
       const message = 'Disconnect failed.';
@@ -1265,7 +1280,8 @@ const App = () => {
         lastPublish.keyexpr,
         lastPublish.payload,
         lastPublish.encoding,
-        lastPublish.protoTypeId
+        lastPublish.protoTypeId,
+        lastPublish.wireEncoding
       );
       setActionNotice({ type: 'ok', message: 'Replayed last publish.' });
       addLog({
@@ -1314,15 +1330,10 @@ const App = () => {
       }
       if (event.code === 'Digit4') {
         event.preventDefault();
-        setView('logs');
-        return;
-      }
-      if (event.code === 'Digit5') {
-        event.preventDefault();
         setView('settings');
         return;
       }
-      if (event.code === 'Digit6') {
+      if (event.code === 'Digit5') {
         event.preventDefault();
         setView('about');
         return;
@@ -1384,8 +1395,15 @@ const App = () => {
 
   return (
     <div className="app">
-      <div className="app_frame">
+      <div className="app_frame" data-sidebar-collapsed={sidebar.collapsed}>
         <AppRail
+          collapsed={sidebar.collapsed}
+          onToggleCollapsed={sidebar.toggle}
+          hasRetainedMessages={
+            subscriptions.length > 0 ||
+            pinnedMessages.length > 0 ||
+            Boolean(discovery.snapshot?.startedAt)
+          }
           theme={theme}
           view={view}
           connected={status.connected}
@@ -1396,6 +1414,7 @@ const App = () => {
 
         <div className="app_shell">
           <AppHeader
+            quietConnection={view === 'publish'}
             viewTitle={viewTitle}
             viewDescription={viewDescription}
             statusConnected={status.connected}
@@ -1406,10 +1425,6 @@ const App = () => {
             copied={copied}
             lastEndpoint={lastEndpoint}
             onCopyEndpoint={handleCopyEndpoint}
-            view={view}
-            selectedSub={selectedSub}
-            onTogglePause={handleTogglePause}
-            onClearBuffer={handleClearBuffer}
             actionNotice={actionNotice}
             onDisconnect={handleDisconnect}
           />
@@ -1425,6 +1440,102 @@ const App = () => {
           <div className="app_body">
             {view === 'monitor' ? (
               <MonitorView
+                discoveryOpen={discoveryOpen}
+                setDiscoveryOpen={setDiscoveryOpen}
+                discovery={discovery}
+                capture={selectedSubId ? captureById[selectedSubId] : undefined}
+                pinnedMessages={pinnedMessages}
+                pinnedContext={pinnedContext}
+                onPin={(message) => {
+                  if (pinnedMessages.some((entry) => entry.id === message.id)) return;
+                  if (pinnedMessages.length >= 8 || message.sizeBytes > 8 * 1024 * 1024) {
+                    addToast({
+                      type: 'error',
+                      message: 'Pin limit reached',
+                      detail:
+                        'Keep up to 8 payloads of at most 8 MiB each. Unpin a message to make room.'
+                    });
+                    return;
+                  }
+                  setPinnedMessages((previous) => [...previous, message]);
+                  setPinnedContext((previous) => ({
+                    ...previous,
+                    [message.id]: {
+                      protoResult,
+                      subscriptionLabel: selectedSub?.keyexpr
+                    }
+                  }));
+                  addToast({
+                    type: 'ok',
+                    message: 'Message pinned',
+                    detail: 'Full payload kept for this app session.'
+                  });
+                }}
+                onUnpin={(id) => {
+                  setPinnedMessages((previous) => previous.filter((message) => message.id !== id));
+                  setPinnedContext((previous) => {
+                    const next = { ...previous };
+                    delete next[id];
+                    return next;
+                  });
+                }}
+                onPublishMessage={(message) => {
+                  if (
+                    !message.payloadLoaded ||
+                    message.payloadTruncated ||
+                    message.payloadUnavailable ||
+                    message.base64 === undefined ||
+                    message.kind === 'delete'
+                  )
+                    return;
+                  const decoded = pinnedContext[message.id]
+                    ? pinnedContext[message.id].protoResult
+                    : decodeProtobuf(selectedDecoder, message);
+                  if (decoded?.data !== undefined && decoded.typeId) {
+                    setPublishDraft({
+                      keyexpr: message.key,
+                      encoding: 'protobuf',
+                      payload: JSON.stringify(decoded.data, null, 2),
+                      protoTypeId: decoded.typeId,
+                      wireEncoding: message.wireEncoding
+                    });
+                  } else if (message.json !== undefined) {
+                    setPublishDraft({
+                      keyexpr: message.key,
+                      encoding: 'json',
+                      payload: JSON.stringify(message.json, null, 2),
+                      wireEncoding: message.wireEncoding
+                    });
+                  } else if (message.text !== undefined) {
+                    setPublishDraft({
+                      keyexpr: message.key,
+                      encoding: 'text',
+                      payload: message.text,
+                      wireEncoding: message.wireEncoding
+                    });
+                  } else
+                    setPublishDraft({
+                      keyexpr: message.key,
+                      encoding: 'base64',
+                      payload: message.base64,
+                      wireEncoding: message.wireEncoding
+                    });
+                  setView('publish');
+                  addToast({
+                    type: 'ok',
+                    message: 'Publish draft ready',
+                    detail: 'Review and edit the payload, then publish when ready.'
+                  });
+                }}
+                onPublishKey={(key) => {
+                  setPublishDraft({
+                    keyexpr: key,
+                    encoding: 'json',
+                    payload: DEFAULT_PUBLISH_JSON
+                  });
+                  setView('publish');
+                }}
+                getMessage={getMessage}
                 connected={status.connected}
                 subscriptions={subscriptions}
                 selectedSubId={selectedSubId}
@@ -1452,6 +1563,7 @@ const App = () => {
                 onLog={addLog}
                 onToast={addToast}
                 protoTypes={protoTypeOptions}
+                onAddProtoSchema={addProtoSchema}
                 decoderById={subscriptionDecoders}
                 selectedDecoder={selectedDecoder}
                 decodeProtobuf={decodeProtobuf}
@@ -1467,6 +1579,15 @@ const App = () => {
                 queryableSupport={queryableSupport}
                 draft={publishDraft}
                 onDraftChange={setPublishDraft}
+                onEncodingChange={(candidate) => {
+                  publishModeDraftsRef.current[publishDraft.encoding] = publishDraft;
+                  setPublishDraft({
+                    ...(publishModeDraftsRef.current[candidate.encoding] || candidate),
+                    keyexpr: publishDraft.keyexpr
+                  });
+                }}
+                validateProtoDraft={validateProtoDraft}
+                onAddSchema={addProtoSchema}
                 onPublish={handlePublish}
                 onDeclareQueryable={handleDeclareQueryable}
                 queryables={queryables}
@@ -1485,8 +1606,13 @@ const App = () => {
               <ConnectionView
                 status={status}
                 defaultEndpoint={lastEndpoint || undefined}
-                onConnect={connect}
+                onConnect={async (params) => {
+                  setDiscoveryOpen(true);
+                  await connect(params);
+                }}
                 onTestConnection={testConnection}
+                events={logs}
+                onClearEvents={clearLogs}
                 onLog={addLog}
                 onToast={addToast}
               />
@@ -1508,8 +1634,6 @@ const App = () => {
               />
             ) : null}
 
-            {view === 'logs' ? <LogsView logs={logs} onClearLogs={clearLogs} /> : null}
-
             {view === 'about' ? (
               <AboutView
                 appName={appInfo.build?.productName ?? appInfo.name ?? 'Carto'}
@@ -1524,7 +1648,6 @@ const App = () => {
           </div>
         </div>
       </div>
-      {toasts.length > 0 ? <ToastStack toasts={toasts} onDismiss={dismissToast} /> : null}
     </div>
   );
 };

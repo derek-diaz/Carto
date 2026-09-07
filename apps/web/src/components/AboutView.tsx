@@ -1,3 +1,4 @@
+import { Button } from './ui/button';
 import logoUrl from '@assets/web/icon-512.png';
 import type { ReleaseCheckState } from '../hooks/useReleaseCheck';
 import { CARTO_RELEASES_URL, CARTO_REPOSITORY_URL } from '../utils/releaseCheck';
@@ -157,7 +158,9 @@ const AboutView = ({
               </span>
             </a>
           ) : null}
-          <button
+          <Button
+            variant="outline"
+            size="default"
             className="button button--ghost"
             type="button"
             onClick={() => onCheckForUpdates().catch(() => {})}
@@ -167,7 +170,7 @@ const AboutView = ({
               <IconRefresh />
             </span>
             {isChecking ? 'Checking…' : 'Check again'}
-          </button>
+          </Button>
         </div>
       </section>
       <footer className="about_footer">

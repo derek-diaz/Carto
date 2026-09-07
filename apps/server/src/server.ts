@@ -8,6 +8,7 @@ import { createCartoBackend } from '../../../packages/core/src/backend/cartoBack
 import type { CartoEventSink } from '../../../packages/core/src/backend/eventSink';
 import type {
   ClearBufferParams,
+  DiscoveryParams,
   ConnectParams,
   ConnectionTestParams,
   DeclareQueryableParams,
@@ -38,7 +39,8 @@ const CLIENT_ID_HEADER = 'x-carto-client-id';
 const CLIENT_ID_RE = /^[a-zA-Z0-9_-]{16,128}$/;
 const SECURITY_HEADERS = {
   'Content-Security-Policy':
-    "default-src 'self'; base-uri 'none'; connect-src 'self' https://api.github.com ws: wss:; font-src 'self'; form-action 'none'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'",
+    // Runtime-loaded .proto schemas use protobufjs-generated codecs, as in Electron's CSP.
+    "default-src 'self'; base-uri 'none'; connect-src 'self' https://api.github.com ws: wss:; font-src 'self'; form-action 'none'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'",
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Permissions-Policy': 'camera=(), geolocation=(), microphone=()',
   'Referrer-Policy': 'no-referrer',
@@ -150,6 +152,15 @@ const handleApiRequest = async (
 
   try {
     switch (pathname) {
+      case '/api/discovery/start':
+        respondJson(res, 200, await backend.startDiscovery(body as DiscoveryParams));
+        return;
+      case '/api/discovery/stop':
+        respondJson(res, 200, await backend.stopDiscovery());
+        return;
+      case '/api/discovery':
+        respondJson(res, 200, backend.getDiscovery());
+        return;
       case '/api/connect':
         await backend.connect(body as ConnectParams);
         respondJson(res, 200, { ok: true });

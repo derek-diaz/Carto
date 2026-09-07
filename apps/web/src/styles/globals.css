@@ -1,0 +1,160 @@
+@layer theme, base, legacy, components, utilities;
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+@import '../styles.css' layer(legacy);
+@import '../investigation.css' layer(legacy);
+@import '../discovery.css' layer(legacy);
+@import '../monitor.css' layer(components);
+
+@custom-variant dark (&:is(.theme-dark *, .theme-dark));
+@theme inline {
+  --color-background: var(--ui-background);
+  --color-foreground: var(--ui-foreground);
+  --color-card: var(--ui-card);
+  --color-card-foreground: var(--ui-foreground);
+  --color-popover: var(--ui-card);
+  --color-popover-foreground: var(--ui-foreground);
+  --color-primary: var(--ui-primary);
+  --color-primary-foreground: var(--ui-primary-foreground);
+  --color-secondary: var(--ui-secondary);
+  --color-secondary-foreground: var(--ui-foreground);
+  --color-muted: var(--ui-secondary);
+  --color-muted-foreground: var(--ui-muted-foreground);
+  --color-accent: var(--ui-secondary);
+  --color-accent-foreground: var(--ui-foreground);
+  --color-destructive: var(--ui-destructive);
+  --color-border: var(--ui-border);
+  --color-input: var(--ui-border);
+  --color-ring: var(--ui-primary);
+  --font-sans: 'Inter', 'Segoe UI Variable', 'Segoe UI', sans-serif;
+  --font-mono: 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+@layer base {
+  * {
+    @apply border-border;
+  }
+}
+@layer components {
+  :root {
+    --radius: 0.625rem;
+    --ui-background: #f7f8fa;
+    --ui-foreground: #20252d;
+    --ui-card: #ffffff;
+    --ui-primary: #167d68;
+    --ui-primary-foreground: #ffffff;
+    --ui-secondary: #eef1f3;
+    --ui-muted-foreground: #63707e;
+    --ui-border: #dde2e7;
+    --ui-destructive: #c13b45;
+  }
+  .theme-dark {
+    --ui-background: #111419;
+    --ui-foreground: #e7eaee;
+    --ui-card: #191d24;
+    --ui-primary: #83d6be;
+    --ui-primary-foreground: #102b24;
+    --ui-secondary: #242a33;
+    --ui-muted-foreground: #9ca7b5;
+    --ui-border: #2d343e;
+    --ui-destructive: #ff8b92;
+  }
+  :root,
+  .theme-dark {
+    --background: var(--ui-background);
+    --foreground: var(--ui-foreground);
+    --primary: var(--ui-primary);
+    --primary-foreground: var(--ui-primary-foreground);
+    --secondary: var(--ui-secondary);
+    --secondary-foreground: var(--ui-foreground);
+    --muted-foreground: var(--ui-muted-foreground);
+    --accent-foreground: var(--ui-foreground);
+    --destructive: var(--ui-destructive);
+    --input: var(--ui-border);
+    --ring: var(--ui-primary);
+    --bg: var(--ui-background);
+    --panel: var(--ui-background);
+    --panel-strong: var(--ui-card);
+    --text: var(--ui-foreground);
+    --muted: var(--ui-muted-foreground);
+    --border: var(--ui-border);
+    --border-soft: var(--ui-border);
+    --accent: var(--ui-primary);
+    --font-ui: var(--font-sans);
+  }
+  body {
+    background: var(--ui-background);
+    font-family: var(--font-sans);
+  }
+  body::before,
+  body::after {
+    display: none;
+  }
+  .app,
+  .app_frame,
+  .app_shell {
+    background: var(--ui-background);
+    box-shadow: none;
+  }
+  .app_header {
+    background: var(--ui-card);
+    border-color: var(--ui-border);
+  }
+  .app_frame {
+    grid-template-columns: 184px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .app_frame[data-sidebar-collapsed='true'] {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+  .app_frame[data-sidebar-collapsed='false'] {
+    grid-template-columns: 184px minmax(0, 1fr);
+  }
+  .monitor-panel:not([hidden]) {
+    display: flex;
+    flex: 1;
+  }
+  .monitor-panel > .panel {
+    flex: 1;
+  }
+  .monitor_stage[data-slot='tabs'] {
+    gap: 0;
+  }
+  .app_title p {
+    color: var(--ui-muted-foreground);
+  }
+  .publish_panel-columns { grid-template-columns: minmax(200px, 260px) minmax(0, 1fr); }
+  .publish_editor-textarea[data-slot='textarea'] { min-height: 260px; font-family: var(--font-mono); }
+  .publish_block { border-radius: var(--radius-lg); }
+  @media (max-width: 1080px) { .publish_panel-columns { grid-template-columns: minmax(0, 1fr); } }
+  .connection_shell { display: block; overflow-y: auto; }
+  .connection_shell .connect_panel { height: auto; max-height: none; overflow: visible; flex-shrink: 0; }
+  .connect_options { flex-shrink: 0; }
+  .connect_options > [data-slot='tabs-list'] {
+    flex-shrink: 0;
+    min-height: 66px;
+  }
+  [data-slot='dialog-content'] > .subscribe_panel--modal {
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  @media (max-width: 980px) {
+    .app_frame {
+      grid-template-columns: 64px minmax(0, 1fr);
+    }
+  }
+  [data-slot='dialog-overlay'] {
+    z-index: 100;
+  }
+  [data-slot='dialog-content'] {
+    z-index: 101;
+  }
+}

@@ -1,3 +1,4 @@
+import { Button } from './ui/button';
 import type { RecentKeyStats } from '@shared/types';
 import { formatAge, formatBytes } from '../utils/format';
 import { IconClose } from './Icons';
@@ -16,8 +17,8 @@ const KeyInspector = ({ keyStat, subscriptionLabel, onClose }: KeyInspectorProps
           <span className="monitor_eyebrow">Key inspector</span>
           <h3>Select a key</h3>
           <p>
-            Pick any key row to inspect activity totals, payload volume, and the most recent
-            traffic snapshot for that keyexpr.
+            Pick any key row to inspect activity totals, payload volume, and the most recent traffic
+            snapshot for that keyexpr.
           </p>
         </div>
       </aside>
@@ -40,7 +41,9 @@ const KeyInspector = ({ keyStat, subscriptionLabel, onClose }: KeyInspectorProps
         </div>
         <div className="monitor_inspector-header-actions">
           <span className="badge badge--idle monitor_inspector-badge">{countLabel}</span>
-          <button
+          <Button
+            variant="outline"
+            size="icon-sm"
             className="icon-button icon-button--ghost icon-button--compact"
             onClick={onClose}
             type="button"
@@ -50,7 +53,7 @@ const KeyInspector = ({ keyStat, subscriptionLabel, onClose }: KeyInspectorProps
             <span className="icon-button_icon" aria-hidden="true">
               <IconClose />
             </span>
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -61,8 +64,8 @@ const KeyInspector = ({ keyStat, subscriptionLabel, onClose }: KeyInspectorProps
               <span className="monitor_eyebrow">Activity snapshot</span>
               <h4>Volume and recency for the selected key</h4>
               <p>
-                Use this pane to spot noisy keys quickly, compare payload weight, and decide
-                whether you need to switch back to the stream tab for message-level inspection.
+                Use this pane to spot noisy keys quickly, compare payload weight, and decide whether
+                you need to switch back to the stream tab for message-level inspection.
               </p>
             </div>
 
@@ -98,7 +101,9 @@ const KeyInspector = ({ keyStat, subscriptionLabel, onClose }: KeyInspectorProps
           </div>
           <div className="monitor_stat">
             <span className="monitor_stat-label">Last seen</span>
-            <span className="monitor_stat-value">{new Date(keyStat.lastSeen).toLocaleString()}</span>
+            <span className="monitor_stat-value">
+              {new Date(keyStat.lastSeen).toLocaleString()}
+            </span>
           </div>
           <div className="monitor_stat">
             <span className="monitor_stat-label">Total bytes</span>

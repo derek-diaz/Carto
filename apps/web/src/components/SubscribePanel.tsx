@@ -1,3 +1,6 @@
+import { Button as BaseButton } from '@base-ui/react/button';
+import { Input } from './ui/input';
+import { Button } from './ui/button';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Subscription } from '../store/useCarto';
 import type { LogInput, ToastInput } from '../utils/notifications';
@@ -329,7 +332,9 @@ const SubscribePanel = ({
 
   useEffect(() => {
     if (decoderMode !== 'protobuf') return;
-    setProtoTypeIds((prev) => prev.filter((typeId) => protoTypes.some((type) => type.id === typeId)));
+    setProtoTypeIds((prev) =>
+      prev.filter((typeId) => protoTypes.some((type) => type.id === typeId))
+    );
   }, [decoderMode, protoTypes]);
 
   useEffect(() => {
@@ -387,8 +392,7 @@ const SubscribePanel = ({
   const toggleSelectAllFiltered = useCallback(() => {
     setProtoTypeIds((prev) => {
       const everySelected =
-        selectableFilteredIds.length > 0 &&
-        selectableFilteredIds.every((id) => prev.includes(id));
+        selectableFilteredIds.length > 0 && selectableFilteredIds.every((id) => prev.includes(id));
       if (everySelected) {
         const removing = new Set(selectableFilteredIds);
         return prev.filter((id) => !removing.has(id));
@@ -407,11 +411,7 @@ const SubscribePanel = ({
     onLog({ level: 'error', source, message, detail });
   };
 
-  const handleAction = async (
-    action: () => Promise<void>,
-    source: string,
-    detail?: string
-  ) => {
+  const handleAction = async (action: () => Promise<void>, source: string, detail?: string) => {
     try {
       await action();
     } catch (error) {
@@ -514,7 +514,9 @@ const SubscribePanel = ({
             <span className="badge badge--idle">{subscriptions.length} active</span>
           ) : null}
           {onClose ? (
-            <button
+            <Button
+              variant="outline"
+              size="icon-sm"
               className="icon-button icon-button--compact icon-button--ghost"
               onClick={onClose}
               type="button"
@@ -524,7 +526,7 @@ const SubscribePanel = ({
               <span className="icon-button_icon" aria-hidden="true">
                 <IconClose />
               </span>
-            </button>
+            </Button>
           ) : null}
         </div>
       </div>
@@ -532,7 +534,7 @@ const SubscribePanel = ({
         <label className="field field--combo subscribe_field">
           <span>Key expression</span>
           <div className="combo" ref={comboRef}>
-            <input
+            <Input
               ref={inputRef}
               className="combo_input"
               type="text"
@@ -548,7 +550,7 @@ const SubscribePanel = ({
               placeholder="demo/**"
               disabled={!connected || busy}
             />
-            <button
+            <BaseButton
               className="combo_toggle"
               type="button"
               onClick={() => setShowHistory((prev) => !prev)}
@@ -558,7 +560,7 @@ const SubscribePanel = ({
               <span className="combo_icon" aria-hidden="true">
                 <IconChevronDown />
               </span>
-            </button>
+            </BaseButton>
             {showHistory ? (
               <div className="combo_menu" role="listbox">
                 {keyexprHistory.length === 0 ? (
@@ -566,15 +568,17 @@ const SubscribePanel = ({
                 ) : (
                   keyexprHistory.map((entry) => (
                     <div key={entry} className="combo_option">
-                      <button
+                      <BaseButton
                         className="combo_option_button"
                         type="button"
                         role="option"
                         onClick={() => applyHistorySelection(entry)}
                       >
                         {entry}
-                      </button>
-                      <button
+                      </BaseButton>
+                      <Button
+                        variant="outline"
+                        size="icon-sm"
                         className="icon-button icon-button--compact icon-button--ghost combo_option_remove"
                         type="button"
                         title={`Remove ${entry}`}
@@ -584,7 +588,7 @@ const SubscribePanel = ({
                         <span className="icon-button_icon" aria-hidden="true">
                           <IconClose />
                         </span>
-                      </button>
+                      </Button>
                     </div>
                   ))
                 )}
@@ -594,7 +598,8 @@ const SubscribePanel = ({
         </label>
         {!isModal ? (
           <div className="helper subscribe_key-help">
-            A key expression can target one exact key or match an entire branch with <code>**</code>.
+            A key expression can target one exact key or match an entire branch with <code>**</code>
+            .
           </div>
         ) : null}
 
@@ -603,7 +608,7 @@ const SubscribePanel = ({
             <span>Quick starts</span>
             <div>
               {ONBOARDING_KEYEXPR_PRESETS.map((preset) => (
-                <button
+                <BaseButton
                   key={preset}
                   className={`subscribe_preset ${keyexpr === preset ? 'subscribe_preset--active' : ''}`}
                   type="button"
@@ -614,7 +619,7 @@ const SubscribePanel = ({
                   disabled={!connected || busy}
                 >
                   {preset}
-                </button>
+                </BaseButton>
               ))}
             </div>
           </div>
@@ -622,13 +627,15 @@ const SubscribePanel = ({
 
         <label className="field subscribe_field">
           <span>{isOnboarding ? 'Messages to keep' : 'Buffer size'}</span>
-          <input
+          <Input
             type="number"
             min={1}
             step={1}
             value={bufferSizeText}
             onChange={(event) => setBufferSizeText(event.target.value)}
-            placeholder={editingSubscription ? String(editingSubscription.bufferSize) : 'Use default'}
+            placeholder={
+              editingSubscription ? String(editingSubscription.bufferSize) : 'Use default'
+            }
             disabled={!connected || busy}
           />
           <span className="helper">
@@ -640,8 +647,10 @@ const SubscribePanel = ({
 
         <label className="field subscribe_field">
           <span>Decoder</span>
-          <div className={`subscribe_decoder ${decoderMode === 'protobuf' ? 'subscribe_decoder--protobuf' : ''}`}>
-            <button
+          <div
+            className={`subscribe_decoder ${decoderMode === 'protobuf' ? 'subscribe_decoder--protobuf' : ''}`}
+          >
+            <BaseButton
               className={`subscribe_decoder-option ${decoderMode === 'raw' ? 'subscribe_decoder-option--active' : ''}`}
               type="button"
               onClick={() => {
@@ -650,18 +659,16 @@ const SubscribePanel = ({
             >
               <span className="subscribe_decoder-title">Raw</span>
               <span className="subscribe_decoder-copy">Keep payloads as-is.</span>
-            </button>
-            <button
+            </BaseButton>
+            <BaseButton
               className={`subscribe_decoder-option ${decoderMode === 'protobuf' ? 'subscribe_decoder-option--active' : ''}`}
               type="button"
               onClick={() => setDecoderMode('protobuf')}
               disabled={protoTypes.length === 0}
             >
               <span className="subscribe_decoder-title">Protobuf</span>
-              <span className="subscribe_decoder-copy">
-                Decode with one or more schema types.
-              </span>
-            </button>
+              <span className="subscribe_decoder-copy">Decode with one or more schema types.</span>
+            </BaseButton>
           </div>
           {protoTypes.length === 0 ? (
             <span className="helper">Add a `.proto` schema in Settings to enable decoding.</span>
@@ -672,7 +679,7 @@ const SubscribePanel = ({
           <label className="field field--combo subscribe_field">
             <span>Protobuf types</span>
             <div className="combo proto_combo" ref={protoComboRef}>
-              <input
+              <Input
                 className="combo_input"
                 type="text"
                 value={protoSearch}
@@ -688,7 +695,7 @@ const SubscribePanel = ({
                 }
                 disabled={protoTypes.length === 0}
               />
-              <button
+              <BaseButton
                 className="combo_toggle"
                 type="button"
                 onClick={() => setShowProtoMenu((prev) => !prev)}
@@ -698,11 +705,11 @@ const SubscribePanel = ({
                 <span className="combo_icon" aria-hidden="true">
                   <IconChevronDown />
                 </span>
-              </button>
+              </BaseButton>
               {showProtoMenu ? (
                 <div className="combo_menu proto_menu" role="listbox" aria-multiselectable="true">
                   <div className="proto_menu_actions">
-                    <button
+                    <BaseButton
                       type="button"
                       className="proto_menu_action"
                       onClick={toggleSelectAllFiltered}
@@ -711,15 +718,15 @@ const SubscribePanel = ({
                       {allFilteredSelected
                         ? `Deselect all${protoQuery ? ' shown' : ''}`
                         : `Select all${protoQuery ? ' shown' : ''}`}
-                    </button>
-                    <button
+                    </BaseButton>
+                    <BaseButton
                       type="button"
                       className="proto_menu_action"
                       onClick={() => setProtoTypeIds([])}
                       disabled={protoTypeIds.length === 0}
                     >
                       Clear
-                    </button>
+                    </BaseButton>
                   </div>
                   {filteredProtoTypes.length === 0 ? (
                     <div className="combo_empty">No matching types.</div>
@@ -727,7 +734,7 @@ const SubscribePanel = ({
                     filteredProtoTypes.map((type) => {
                       const selected = protoTypeIds.includes(type.id);
                       return (
-                        <button
+                        <BaseButton
                           key={type.id}
                           type="button"
                           role="option"
@@ -739,7 +746,7 @@ const SubscribePanel = ({
                             {selected ? <IconCheck /> : null}
                           </span>
                           <span className="proto_option_label">{type.label}</span>
-                        </button>
+                        </BaseButton>
                       );
                     })
                   )}
@@ -751,7 +758,7 @@ const SubscribePanel = ({
                 {protoTypeIds.map((typeId) => (
                   <span key={typeId} className="proto_type">
                     {protoTypeLabels[typeId] ?? 'Unknown'}
-                    <button
+                    <BaseButton
                       className="proto_type-remove"
                       type="button"
                       aria-label={`Remove ${protoTypeLabels[typeId] ?? typeId}`}
@@ -762,7 +769,7 @@ const SubscribePanel = ({
                       <span className="icon-button_icon" aria-hidden="true">
                         <IconClose />
                       </span>
-                    </button>
+                    </BaseButton>
                   </span>
                 ))}
               </div>
@@ -776,8 +783,8 @@ const SubscribePanel = ({
       </div>
 
       <div className="panel_actions subscribe_actions">
-        <button
-          className={`button ${isModal || isOnboarding ? 'subscribe_submit' : ''}`}
+        <Button
+          className={isModal || isOnboarding ? 'h-10 min-w-40 rounded-xl' : ''}
           onClick={handleSubscribe}
           disabled={
             !connected ||
@@ -787,7 +794,11 @@ const SubscribePanel = ({
             (decoderMode === 'protobuf' && protoTypeIds.length === 0)
           }
         >
-          {isEditing ? 'Save changes' : isModal ? 'Subscribe' : isOnboarding ? (
+          {isEditing ? (
+            'Save changes'
+          ) : isModal ? (
+            'Subscribe'
+          ) : isOnboarding ? (
             <>
               <span className="button_icon" aria-hidden="true">
                 <IconPlus />
@@ -798,10 +809,11 @@ const SubscribePanel = ({
             <>
               <span className="button_icon" aria-hidden="true">
                 <IconPlus />
-              </span>{' '}Start
+              </span>{' '}
+              Start
             </>
           )}
-        </button>
+        </Button>
       </div>
       {displayError ? <div className="panel_error">{displayError}</div> : null}
 
@@ -825,7 +837,9 @@ const SubscribePanel = ({
                   </div>
                 </div>
                 <div className="list_actions">
-                  <button
+                  <Button
+                    variant="outline"
+                    size="default"
                     className="button button--ghost"
                     onClick={(event) => {
                       event.stopPropagation();
@@ -838,9 +852,12 @@ const SubscribePanel = ({
                   >
                     <span className="button_icon" aria-hidden="true">
                       {sub.paused ? <IconPlay /> : <IconPause />}
-                    </span>{' '}{sub.paused ? 'Resume' : 'Pause'}
-                  </button>
-                  <button
+                    </span>{' '}
+                    {sub.paused ? 'Resume' : 'Pause'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="default"
                     className="button button--ghost"
                     onClick={(event) => {
                       event.stopPropagation();
@@ -853,9 +870,12 @@ const SubscribePanel = ({
                   >
                     <span className="button_icon" aria-hidden="true">
                       <IconTrash />
-                    </span>{' '}Clear
-                  </button>
-                  <button
+                    </span>{' '}
+                    Clear
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="default"
                     className="button button--danger"
                     onClick={(event) => {
                       event.stopPropagation();
@@ -868,8 +888,9 @@ const SubscribePanel = ({
                   >
                     <span className="button_icon" aria-hidden="true">
                       <IconStop />
-                    </span>{' '}Stop
-                  </button>
+                    </span>{' '}
+                    Stop
+                  </Button>
                 </div>
               </div>
             ))

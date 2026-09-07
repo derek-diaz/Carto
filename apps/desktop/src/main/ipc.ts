@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron';
 import type {
   ClearBufferParams,
+  DiscoveryParams,
   ConnectParams,
   ConnectionTestParams,
   ConnectionTestResult,
@@ -17,6 +18,11 @@ import type {
 import type { CartoBackend } from '../../../../packages/core/src/backend/cartoBackend';
 
 export const registerIpc = (backend: CartoBackend): void => {
+  ipcMain.handle('carto.startDiscovery', (_event, params: DiscoveryParams) =>
+    backend.startDiscovery(params)
+  );
+  ipcMain.handle('carto.stopDiscovery', () => backend.stopDiscovery());
+  ipcMain.handle('carto.getDiscovery', () => backend.getDiscovery());
   ipcMain.handle('carto.connect', async (_event, params: ConnectParams) => {
     await backend.connect(params);
   });

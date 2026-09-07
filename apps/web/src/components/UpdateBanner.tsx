@@ -1,3 +1,4 @@
+import { Button } from './ui/button';
 import type { CartoRelease } from '../utils/releaseCheck';
 import { IconClose, IconExternalLink, IconLatest } from './Icons';
 
@@ -17,9 +18,15 @@ const UpdateBanner = ({ release, onShowAbout, onDismiss }: UpdateBannerProps) =>
       <span>See what changed or download the latest release.</span>
     </div>
     <div className="update_banner-actions">
-      <button className="button button--ghost button--compact" type="button" onClick={onShowAbout}>
+      <Button
+        variant="outline"
+        size="sm"
+        className="button button--ghost button--compact"
+        type="button"
+        onClick={onShowAbout}
+      >
         Details
-      </button>
+      </Button>
       <a
         className="button button--primary button--compact"
         href={release.url}
@@ -31,7 +38,9 @@ const UpdateBanner = ({ release, onShowAbout, onDismiss }: UpdateBannerProps) =>
           <IconExternalLink />
         </span>
       </a>
-      <button
+      <Button
+        variant="outline"
+        size="icon-sm"
         className="icon-button icon-button--ghost"
         type="button"
         onClick={onDismiss}
@@ -41,7 +50,7 @@ const UpdateBanner = ({ release, onShowAbout, onDismiss }: UpdateBannerProps) =>
         <span className="icon-button_icon">
           <IconClose />
         </span>
-      </button>
+      </Button>
     </div>
   </aside>
 );

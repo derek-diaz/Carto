@@ -1,266 +1,131 @@
 <div align="center">
- 
-<p>
-    <img src="assets/web/icon-512.png" alt="Carto logo" width="200" height="200">
-</p>
+  <img src="assets/web/icon-512.png" alt="Carto logo" width="96" height="96" />
   <h1>Carto</h1>
-  <p><strong>Web-first Zenoh traffic inspector with desktop builds for Windows, macOS, and Linux</strong></p>
-  <p>Inspect, filter, decode, and publish Zenoh messages in real time.</p>
-
+  <p><strong>See what your Zenoh system is doing.</strong></p>
+  <p>Discover active keys. Inspect messages. Decode payloads. Publish with confidence.</p>
   <p>
-    <a href="LICENSE">
-      <img src="https://img.shields.io/github/license/derek-diaz/Carto" alt="License" />
-    </a>
-    <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-2F855A" alt="Platforms: Windows, macOS, Linux" />
-    <a href="https://github.com/derek-diaz/Carto/releases">
-      <img src="https://img.shields.io/github/release-date/derek-diaz/Carto?label=last%20release" alt="Last release date" />
-    </a>
+    <a href="https://github.com/derek-diaz/Carto/releases">Download</a> ·
+    <a href="#get-started">Get started</a> ·
+    <a href="#documentation">Documentation</a> ·
+    <a href="https://github.com/derek-diaz/Carto/issues">Report an issue</a>
   </p>
 </div>
 
-Carto is an open-source, web-first app for Zenoh observability and debugging. It connects to a Zenoh router through the Remote API WebSocket endpoint, subscribes to key expressions, streams live traffic, and helps you inspect payloads quickly. Desktop packages are still produced for Windows, macOS, and Linux.
+Carto is a visual inspector for **Zenoh**. It brings live traffic, key expressions, payload decoding, and publishing into one workspace, so debugging takes fewer logs, command-line tools, and temporary scripts.
 
-The name "Carto" comes from "cartografo" (Spanish for mapmaker).
-
-## Table of Contents
-
-- [Features](#features)
-- [Screenshots](#screenshots)
-- [Installation](#installation)
-- [Zenoh Router Requirements](#zenoh-router-requirements)
-- [Run Carto in Docker](#run-carto-in-docker)
-- [Zenoh Router Docker](#zenoh-router-docker)
-- [Development](#development)
-- [Load Testing](#load-testing)
-- [Scenario Pack](#scenario-pack)
-- [Packaging](#packaging)
-- [Roadmap](#roadmap)
-- [Keywords](#keywords)
-
-## Features
-
-- Live Zenoh stream monitoring by key expression
-- Multi-subscription workflow with lossless pause/resume, clear, and unsubscribe controls
-- Stream filtering by key and message content
-- Message drawer with decoded views for JSON, text, and binary payloads
-- Protobuf schema loading and Protobuf decode support in stream view
-- Publish messages with `json`, `text`, `base64`, and `protobuf` modes
-- Recent key explorer and key-expression history for subscribe/publish flows
-- Connection status, logs, and app-level diagnostics
-- Settings import/export for sharing connection profiles and schema setup
-- Light and dark themes for long monitoring sessions
-
-## Screenshots
-
-### Dark mode stream view
+Use it as a desktop app on **Windows, macOS, or Linux**, or run it in your browser with Carto’s local web server.
 
 <p align="center">
-  <img src="docs/screenshot-1-dark-mode-stream.png" alt="Carto dark mode stream monitor with live Zenoh messages" width="760" />
+  <img src="docs/screenshots/discovery.svg" alt="Carto discovering active robot and factory keys, with a color-highlighted JSON payload preview" width="100%" />
 </p>
 
-### Light mode stream view
+_Screenshots show Carto 0.9.0 with generated demo traffic._
 
-<p align="center">
-  <img src="docs/screenshot-2-light-mode-stream.png" alt="Carto light mode stream monitor with key expression filters" width="760" />
-</p>
+## Get started
 
-### Publish workflow
+### 1. Open Carto
 
-<p align="center">
-  <img src="docs/screenshot-3-light-mode-publish.png" alt="Carto publish panel for sending Zenoh payloads by key expression" width="760" />
-</p>
+Download a desktop build from [Releases](https://github.com/derek-diaz/Carto/releases), or [run from source](#run-from-source).
 
-## Installation
+Prefer a browser? See the [web and Docker guide](docs/running-web.md).
 
-Prebuilt installers for Windows, macOS, and Linux are available on the
-[Releases page](https://github.com/derek-diaz/Carto/releases).
+### 2. Connect your router
 
-## Zenoh Router Requirements
+Your Zenoh router needs the **Remote API plugin** (`zenoh-plugin-remote-api`). Enter its WebSocket address in Carto and click **Connect**.
 
-Carto requires a Zenoh router with `zenoh-plugin-remote-api` enabled.
-
-- Enable `zenoh-plugin-remote-api` on your router
-- Ensure the Remote API WebSocket endpoint is reachable (default `ws://127.0.0.1:10000/`)
-- REST is often exposed at `http://127.0.0.1:8000/`, but Carto uses WebSocket
-
-Useful links:
-
-- [zenoh-plugin-remote-api downloads](https://download.eclipse.org/zenoh/zenoh-plugin-remote-api/)
-- [Adding plugins and backends to the Zenoh container](https://zenoh.io/docs/getting-started/quick-test/#adding-plugins-and-backends-to-the-container)
-
-## Run Carto in Docker
-
-Pull the published image:
-
-```bash
-docker pull tabierto/carto:latest
-```
-
-Run it:
-
-```bash
-docker run --rm -p 127.0.0.1:8080:8080 tabierto/carto
-```
-
-Then open:
-
-```text
-http://localhost:8080
-```
-If your Zenoh router is running on the same machine as Docker, you can use the normal local endpoint:
+For a local router, the default is:
 
 ```text
 ws://127.0.0.1:10000/
 ```
 
-Carto rewrites loopback addresses inside the container to the Docker host automatically. Direct non-loopback IPs also work as long as they are reachable from the container network.
+Use the Remote API WebSocket endpoint, rather than the router’s REST address or native Zenoh TCP port.
 
-Carto's web server is intentionally single-user and binds to loopback by default. Do not expose it directly to an untrusted network: the server can connect to endpoints and read configured TLS files on the host. If remote access is required, put Carto behind an authenticated reverse proxy and explicitly set `HOST` plus `CARTO_ALLOW_REMOTE=1`.
-
-## Zenoh Router Docker
-
-This repository includes a local Docker setup for Zenoh + Remote API:
+Need a local router? From this repository, run:
 
 ```bash
-cd docker
-docker compose up --build
+docker compose -f docker/compose.yml up --build
 ```
 
-Default endpoint:
+See the [router setup guide](docker/README.md) for details.
 
-```text
-ws://localhost:10000
-```
+### 3. Choose what to watch
 
-See `docker/README.md` for Docker-specific details.
+Carto starts a **15-second discovery scan** when you connect. Select an observed key to preview its payload, then click **Watch key** to follow incoming messages.
 
-## Development
+Already know the key expression? Use **Add subscription**. For example, `robots/**` watches matching traffic under `robots/`.
 
-Requirements:
+Discovery shows keys that send traffic during the scan. Quiet or inaccessible keys may not appear. Use **Scan again** when needed.
 
-- Node.js 24+ for desktop builds
-- Node.js for the default web server runtime
-- Bun optional for experimentation
+## Inspect messages
 
-Run locally:
+Switch between subscriptions using the tabs above the stream. Select a message to inspect its payload, timestamp, size, and encoding, then drag the divider to give the inspector more room. JSON is formatted and color-highlighted; binary data is available as Base64.
+
+- **Filter** the stream by key or payload preview.
+- **Changes** compares a message with an earlier message on the same key.
+- **Pin message** keeps a payload as a reference for the current app session.
+- **Edit & republish** opens an editable draft so you can review it before sending.
+
+<p align="center">
+  <img src="docs/screenshots/inspector.svg" alt="Carto Monitor with horizontal subscription tabs, a selected stream row, and the resizable Payload Inspector" width="100%" />
+</p>
+
+The live buffer is bounded. Pausing freezes the display while newer samples continue to arrive; older payloads can expire. Pin the evidence you need to keep. [Learn about capture limits](docs/usage.md).
+
+## Bring your Protobuf definitions
+
+Load your payload’s `.proto` file **along with its common definitions**. You can select multiple files, drag them in, or paste definitions.
+
+1. Open the message-type picker in a discovered payload and choose **Add schema files…**, or use **Settings → Protobuf schemas → Add schemas**.
+2. Add the payload schema and any shared `.proto` files it needs.
+3. Choose the payload’s top-level message type to preview the decoded fields. Use **Watch with decoder** to keep that decoder when subscribing.
+
+Shared messages and enums resolve across loaded files automatically. Saved schemas are available the next time you open Carto. A successful decode alone does not prove that the selected type matches the payload.
+
+## Publish from the same workspace
+
+Choose a target key, write a payload, and click **Send message**. Carto supports **JSON, Text, Base64, and Protobuf**, with JSON validation and a formatting action in the editor toolbar.
+
+Type a target or expand **Observed keys** to choose one. Each format keeps its own draft, and the editor resizes to fit your work. Send with **Ctrl+Enter** on Windows/Linux or **Cmd+Enter** on macOS.
+
+**Recent publishes** restores a sent message as a draft without sending it again. **Options** contains custom wire encoding and queryable setup, which lets Carto reply to queries with a payload.
+
+<p align="center">
+  <img src="docs/screenshots/publish.svg" alt="Carto Publish in light mode with collapsible observed keys, format tabs, a resizable JSON editor, inline Options, and the keyboard send shortcut" width="100%" />
+</p>
+
+## Make it your workspace
+
+Switch between light and dark themes, collapse the sidebar for more room, and save connection profiles. Import or export settings to share your schema setup and connection profiles with teammates.
+
+## Run from source
+
+Install **Node.js 24 or newer**, then:
 
 ```bash
-npm install
+git clone https://github.com/derek-diaz/Carto.git
+cd Carto
+npm ci
 npm run dev:desktop
 ```
 
-Run the web frontend locally:
+The first desktop launch may download Electron. If the runtime is missing, run `npm run setup:desktop` and try again. You still need a reachable Zenoh Remote API endpoint to inspect live traffic.
 
-```bash
-npm run build:web
-npm run dev:web
-```
+Built with **Electron, React 19, shadcn/ui Rhea, Base UI, Tailwind CSS, and TanStack**. See the [development guide](docs/development.md) for builds, checks, architecture, and packaging.
 
-Run the web/server mode locally:
+## Documentation
 
-```bash
-npm install
-npm run build:server
-npm run start:web
-```
-
-Experimental Bun server run:
-
-```bash
-bun install
-npm run start:web:bun
-```
-
-## Load Testing
-
-Carto includes a local Zenoh load publisher for reproducing large-payload issues.
-
-Default run:
-
-```bash
-npm run load:test -- --endpoint ws://127.0.0.1:10000/
-```
-
-That sends 100 messages to `carto/load-test` in bursts of 5, with payload sizes randomized between 600 KiB and 900 KiB.
-
-Example heavier run:
-
-```bash
-npm run load:test -- --endpoint ws://127.0.0.1:10000/ --count 200 --burst 10 --pause-ms 50 --min-kib 600 --max-kib 900
-```
-
-Useful flags:
-
-- `--keyexpr` to isolate the test stream
-- `--format json|text` to switch payload shape
-- `--count` to control total messages
-- `--burst` and `--pause-ms` to shape the send rate
-
-## Scenario Pack
-
-Carto includes a repeatable Zenoh demo covering steady JSON telemetry, structured events,
-plain text, opaque binary payloads, two Protobuf message types, concurrent bursts, large JSON
-snapshots, and put/delete lifecycle traffic.
-
-1. In Carto, open **Settings → General → Import settings** and select
-   [`examples/carto-zenoh-scenarios.json`](examples/carto-zenoh-scenarios.json). Leave
-   **Merge with existing settings** enabled to preserve your current configuration.
-2. Connect with the imported **Local scenario router** profile.
-3. Subscribe to `carto/demo/**` for the complete stream, or select one of the imported focused
-   key expressions. Use `carto/demo/protobuf/**` to exercise the preconfigured multi-type
-   Protobuf decoder.
-4. Run the complete pack continuously, stopping it with `Ctrl+C`:
-
-```bash
-npm run scenario:run
-```
-
-The same JSON file is both the Carto settings import and the scenario runner's manifest, so its
-topics, schemas, and sample publisher drafts stay aligned with what the script sends.
-
-Useful variants:
-
-```bash
-# See every scenario and topic without connecting.
-npm run scenario:list
-
-# Run only selected scenarios.
-npm run scenario:run -- --scenario telemetry-json,protobuf-telemetry
-
-# Run one cycle and exit.
-npm run scenario:once
-
-# Repeat a burst three times with no intentional delay, then exit.
-npm run scenario:run -- --scenario burst --cycles 3 --pace 0
-
-# Use another endpoint or a compatible scenario/settings pack.
-npm run scenario:run -- --endpoint ws://192.168.1.20:10000/ --pack ./my-pack.json
-```
-
-## Packaging
-
-Build all supported desktop targets locally:
-
-```bash
-npm run dist
-```
-
-Build per platform:
-
-```bash
-npm run dist:mac
-npm run dist:win
-npm run dist:linux
-```
-
-Desktop release automation remains in GitHub Actions via Electron/electron-builder while the app runtime moves toward a web-first architecture.
+| I want to…                                         | Start here                                         |
+| -------------------------------------------------- | -------------------------------------------------- |
+| Understand discovery, decoding, and capture limits | [Using Carto](docs/usage.md)                       |
+| Run Carto in a browser or Docker                   | [Web and Docker guide](docs/running-web.md)        |
+| Start a local Zenoh router                         | [Router setup](docker/README.md)                   |
+| Generate demo traffic                              | [Scenario pack](docs/development.md#scenario-pack) |
+| Reproduce high-volume traffic                      | [Load testing](docs/development.md#load-testing)   |
+| Develop or package Carto                           | [Development guide](docs/development.md)           |
 
 ## License
 
-Carto is licensed under the [Apache License 2.0](LICENSE).
-
-## Keywords
-
-Zenoh, Eclipse Zenoh, Zenoh inspector, Zenoh monitoring, Zenoh debugging tool, Zenoh desktop client, pub/sub observability, message stream viewer, key expression explorer, Electron Zenoh app, TypeScript desktop app
+[Apache License 2.0](LICENSE). Contributions and [feedback](https://github.com/derek-diaz/Carto/issues) are welcome.
 
 Made in Puerto Rico. 🇵🇷

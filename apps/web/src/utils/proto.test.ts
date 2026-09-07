@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { encodeProtoPayload, generateProtoSamplePayload, parseProtoSchema } from './proto';
+import {
+  decodeProtoPayload,
+  encodeProtoPayload,
+  generateProtoSamplePayload,
+  parseProtoSchema
+} from './proto';
 
 describe('protobuf sample payloads', () => {
   it('generates encodable values for 64-bit integer fields', () => {
@@ -20,5 +25,24 @@ describe('protobuf sample payloads', () => {
 
     expect(sample).toEqual({ sequence: 1, sentAtMs: 1, status: 0 });
     expect(encodeProtoPayload(handle, sample).byteLength).toBeGreaterThan(0);
+  });
+});
+
+describe('inspector protobuf republishing', () => {
+  const schema = parseProtoSchema(
+    'roundtrip',
+    'roundtrip',
+    'syntax = "proto3"; enum State { READY = 0; BUSY = 1; } message Reading { uint64 sequence = 1; State state = 2; int32 count = 3; }'
+  );
+  const handle = { ...schema.types[0], root: schema.root, schemaName: schema.name };
+  it('round-trips enum names and 64-bit strings without precision loss', () => {
+    const json = { sequence: '18446744073709551615', state: 'BUSY', count: 4 };
+    expect(decodeProtoPayload(handle, encodeProtoPayload(handle, json))).toMatchObject(json);
+  });
+  it('rejects invalid scalar values and out-of-range integers instead of coercing them', () => {
+    expect(() => encodeProtoPayload(handle, { state: 'UNKNOWN' })).toThrow();
+    expect(() => encodeProtoPayload(handle, { count: 'oops' })).toThrow();
+    expect(() => encodeProtoPayload(handle, { sequence: '-1' })).toThrow();
+    expect(() => encodeProtoPayload(handle, [])).toThrow();
   });
 });

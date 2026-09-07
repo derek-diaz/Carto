@@ -1,4 +1,32 @@
 import * as protobuf from 'protobufjs';
+import type { CartoMessage, DiscoveredKey } from '@shared/types';
+
+export type ProtobufDecoder = (
+  decoder: DecoderConfig | undefined,
+  message: Pick<CartoMessage, 'key' | 'base64' | 'payloadTruncated'> | null | undefined
+) => {
+  data?: unknown;
+  error?: string;
+  label?: string;
+  schemaName?: string;
+  exact?: boolean;
+} | null;
+
+export const decodeDiscoveryPreview = (
+  entry: DiscoveredKey,
+  decoder: DecoderConfig,
+  decode: ProtobufDecoder
+) => {
+  if (entry.kind === 'delete') return { error: 'Delete events have no payload to decode.' };
+  if (entry.previewTruncated)
+    return {
+      error:
+        'This sample exceeds the 512-byte discovery preview. Watch this key to decode full messages.'
+    };
+  if (entry.previewBase64 === undefined)
+    return { error: 'Sample bytes are unavailable. Scan again to try a decoder.' };
+  return decode(decoder, { key: entry.key, base64: entry.previewBase64, payloadTruncated: false });
+};
 
 export type ProtoTypeRef = {
   id: string;
@@ -13,6 +41,59 @@ export type ProtoSchema = {
   source: string;
   root: protobuf.Root;
   types: ProtoTypeRef[];
+};
+
+export type ProtoSource = { name: string; source: string };
+export type AddProtoSchemas = (files: ProtoSource[]) => { ok: boolean; error?: string };
+
+/** Resolve related definitions together, independent of the order files were selected. */
+export const mergeProtoSchemas = (
+  schemas: Pick<ProtoSchema, 'name' | 'source'>[]
+): protobuf.Root => {
+  const root = new protobuf.Root();
+  for (const schema of schemas) {
+    try {
+      protobuf.parse(schema.source, root);
+    } catch (error) {
+      throw new Error(`${schema.name}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  try {
+    root.resolveAll();
+  } catch (error) {
+    throw new Error(
+      `Unresolved Protobuf dependency: ${error instanceof Error ? error.message : String(error)}. Add the shared .proto files with this set.`
+    );
+  }
+  return root;
+};
+
+export const prepareProtoSchemas = (
+  existing: ProtoSchema[],
+  files: ProtoSource[],
+  createId: () => string
+): ProtoSchema[] => {
+  if (files.length === 0) throw new Error('Add at least one .proto file.');
+  const added = files
+    .filter(
+      (file) =>
+        !existing.some(
+          (schema) =>
+            schema.name === file.name.trim() && schema.source.trim() === file.source.trim()
+        )
+    )
+    .map((file) => {
+      if (!file.name.trim() || !file.source.trim())
+        throw new Error('Each file needs a name and a Protobuf definition.');
+      try {
+        return parseProtoSchema(createId(), file.name.trim(), file.source);
+      } catch (error) {
+        throw new Error(`${file.name}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    });
+  const next = [...added, ...existing];
+  mergeProtoSchemas(next);
+  return next;
 };
 
 export type ProtoTypeOption = ProtoTypeRef & {
@@ -92,18 +173,72 @@ export const parseProtoSchema = (id: string, name: string, source: string): Prot
   };
 };
 
+// Accept the same enum names and decimal 64-bit strings emitted by the inspector,
+// without coercing invalid scalar values into defaults.
+const normalizeProtoJson = (
+  type: protobuf.Type,
+  payload: Record<string, unknown>
+): Record<string, unknown> => {
+  type.resolveAll();
+  const result = { ...payload };
+  for (const field of type.fieldsArray) {
+    const normalize = (value: unknown): unknown => {
+      if (
+        field.resolvedType instanceof protobuf.Type &&
+        value &&
+        typeof value === 'object' &&
+        !Array.isArray(value)
+      )
+        return normalizeProtoJson(field.resolvedType, value as Record<string, unknown>);
+      if (field.resolvedType instanceof protobuf.Enum && typeof value === 'string')
+        return field.resolvedType.values[value] ?? value;
+      if (
+        /^(u?int64|sint64|s?fixed64)$/.test(field.type) &&
+        typeof value === 'string' &&
+        /^-?\d+$/.test(value)
+      ) {
+        const number = BigInt(value);
+        const unsigned = field.type === 'uint64' || field.type === 'fixed64';
+        if (
+          number < (unsigned ? 0n : -(1n << 63n)) ||
+          number > (unsigned ? (1n << 64n) - 1n : (1n << 63n) - 1n)
+        )
+          throw new Error(`${field.name}: value outside ${field.type} range`);
+        return {
+          low: Number(BigInt.asIntN(32, number)),
+          high: Number(BigInt.asIntN(32, number >> 32n)),
+          unsigned
+        };
+      }
+      return value;
+    };
+    const value = result[field.name];
+    if (field.map && value && typeof value === 'object' && !Array.isArray(value))
+      result[field.name] = Object.fromEntries(
+        Object.entries(value).map(([key, entry]) => [key, normalize(entry)])
+      );
+    else if (field.repeated && Array.isArray(value)) result[field.name] = value.map(normalize);
+    else result[field.name] = normalize(value);
+  }
+  return result;
+};
+
+export const prepareProtoPayload = (
+  handle: ProtoTypeHandle,
+  payload: unknown
+): Record<string, unknown> => {
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload))
+    throw new Error('Protobuf payload must be a JSON object.');
+  const type = handle.root.lookupType(handle.fullName);
+  const normalized = normalizeProtoJson(type, payload as Record<string, unknown>);
+  const error = type.verify(normalized);
+  if (error) throw new Error(error);
+  return normalized;
+};
+
 export const encodeProtoPayload = (handle: ProtoTypeHandle, payload: unknown): Uint8Array => {
   const type = handle.root.lookupType(handle.fullName);
-  if (payload === null || typeof payload !== 'object') {
-    throw new Error('Protobuf payload must be a JSON object.');
-  }
-  const plainPayload = payload as Record<string, unknown>;
-  const error = type.verify(plainPayload);
-  if (error) {
-    throw new Error(error);
-  }
-  const message = type.create(plainPayload);
-  return type.encode(message).finish();
+  return type.encode(type.create(prepareProtoPayload(handle, payload))).finish();
 };
 
 export const generateProtoSamplePayload = (handle: ProtoTypeHandle): string => {

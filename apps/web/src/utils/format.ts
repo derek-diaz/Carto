@@ -10,6 +10,24 @@ export const formatBytes = (bytes: number): string => {
   return `${value.toFixed(value >= 10 ? 1 : 2)} ${units[unitIndex]}`;
 };
 
+/** Short display names only; keep the original wire encoding on the message. */
+export const formatEncoding = (encoding: string): string => {
+  const mime = encoding.split(';', 1)[0].trim().toLowerCase();
+  if (
+    [
+      'application/protobuf',
+      'application/x-protobuf',
+      'application/vnd.google.protobuf',
+      'protobuf'
+    ].includes(mime)
+  )
+    return 'Protobuf';
+  if (mime === 'application/json' || mime.endsWith('+json') || mime === 'json') return 'JSON';
+  if (mime === 'text/plain' || mime === 'text') return 'Text';
+  if (mime === 'application/octet-stream' || mime === 'binary') return 'Binary';
+  return encoding;
+};
+
 export const formatTime = (ts: number): string => {
   const date = new Date(ts);
   return new Intl.DateTimeFormat(undefined, {

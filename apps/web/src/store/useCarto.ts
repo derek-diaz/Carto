@@ -1,6 +1,8 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   CartoMessage,
+  CaptureStats,
   CartoMessagePayload,
   ConnectionTestParams,
   ConnectionTestResult,
@@ -19,6 +21,8 @@ export type Subscription = {
   bufferSize: number;
 };
 
+const EMPTY_KEYS: RecentKeyStats[] = [];
+const EMPTY_QUERYABLES: QueryableInfo[] = [];
 const DEFAULT_BUFFER = 200;
 const RENDER_FLUSH_INTERVAL_MS = 16;
 const LAST_ENDPOINT_STORAGE_KEY = 'carto.lastEndpoint';
@@ -59,15 +63,43 @@ export const useCarto = () => {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [selectedSubId, setSelectedSubId] = useState<string | null>(null);
   const [selectedMessages, setSelectedMessages] = useState<CartoMessage[]>([]);
-  const [recentKeys, setRecentKeys] = useState<RecentKeyStats[]>([]);
-  const [selectedRecentKeys, setSelectedRecentKeys] = useState<RecentKeyStats[]>([]);
-  const [queryables, setQueryables] = useState<QueryableInfo[]>([]);
+  const [captureById, setCaptureById] = useState<Record<string, CaptureStats>>({});
   const [recentKeysFilter, setRecentKeysFilter] = useState('');
   const [lastEndpoint, setLastEndpoint] = useState(readLastEndpoint);
+
+  const queryClient = useQueryClient();
+  const allKeysQuery = useQuery({
+    queryKey: ['carto', 'keys', 'all', recentKeysFilter],
+    queryFn: () => getCartoClient().getRecentKeys({ filter: recentKeysFilter }),
+    enabled: status.connected,
+    refetchInterval: 1000,
+    refetchIntervalInBackground: true
+  });
+  const selectedKeysQuery = useQuery({
+    queryKey: ['carto', 'keys', selectedSubId, recentKeysFilter],
+    queryFn: () =>
+      getCartoClient().getRecentKeys({ filter: recentKeysFilter, subscriptionId: selectedSubId! }),
+    enabled: status.connected && Boolean(selectedSubId),
+    refetchInterval: 1000,
+    refetchIntervalInBackground: true
+  });
+  const queryablesQuery = useQuery({
+    queryKey: ['carto', 'queryables'],
+    queryFn: () => getCartoClient().getQueryables(),
+    enabled: status.connected,
+    refetchInterval: 1000,
+    refetchIntervalInBackground: true
+  });
+  const recentKeys = allKeysQuery.data ?? EMPTY_KEYS;
+  const selectedRecentKeys = selectedKeysQuery.data ?? EMPTY_KEYS;
+  const queryables = status.connected
+    ? (queryablesQuery.data ?? EMPTY_QUERYABLES)
+    : EMPTY_QUERYABLES;
 
   const subscriptionsByIdRef = useRef<Map<string, Subscription>>(new Map());
   const messagesBySubRef = useRef<Record<string, CartoMessage[]>>({});
   const pendingMessagesRef = useRef<Record<string, CartoMessage[]>>({});
+  const frontendSkippedRef = useRef<Record<string, number>>({});
   const selectedSubIdRef = useRef<string | null>(null);
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -77,7 +109,6 @@ export const useCarto = () => {
 
   useEffect(() => {
     selectedSubIdRef.current = selectedSubId;
-    setSelectedRecentKeys([]);
     if (!selectedSubId) {
       setSelectedMessages([]);
       return;
@@ -99,9 +130,11 @@ export const useCarto = () => {
   const resetPendingMessages = useCallback((subscriptionId?: string) => {
     if (subscriptionId) {
       delete pendingMessagesRef.current[subscriptionId];
+      delete frontendSkippedRef.current[subscriptionId];
       return;
     }
     pendingMessagesRef.current = {};
+    frontendSkippedRef.current = {};
     if (flushTimerRef.current !== null) {
       clearTimeout(flushTimerRef.current);
       flushTimerRef.current = null;
@@ -123,7 +156,11 @@ export const useCarto = () => {
       if (!subscription) continue;
       const current = messagesBySubRef.current[subscriptionId] ?? [];
       messagesBySubRef.current[subscriptionId] = current;
-      const changed = appendBatchToBuffer(current, batch, subscription.bufferSize ?? DEFAULT_BUFFER);
+      const changed = appendBatchToBuffer(
+        current,
+        batch,
+        subscription.bufferSize ?? DEFAULT_BUFFER
+      );
       if (changed && selectedId === subscriptionId) {
         selectedChanged = true;
       }
@@ -143,13 +180,11 @@ export const useCarto = () => {
   const resetLocalState = useCallback(() => {
     resetPendingMessages();
     setSubscriptions([]);
+    setCaptureById({});
     messagesBySubRef.current = {};
     setSelectedSubId(null);
     selectedSubIdRef.current = null;
     setSelectedMessages([]);
-    setRecentKeys([]);
-    setSelectedRecentKeys([]);
-    setQueryables([]);
   }, [resetPendingMessages]);
 
   useEffect(() => {
@@ -160,113 +195,49 @@ export const useCarto = () => {
     const carto = getCarto();
     if (!carto) return;
     return carto.onMessage((payload: CartoMessagePayload) => {
+      const capture = 'capture' in payload ? payload.capture : undefined;
+      if (capture?.received === 0) frontendSkippedRef.current[payload.subscriptionId] = 0;
       const queue = pendingMessagesRef.current[payload.subscriptionId] ?? [];
-      if ('msgs' in payload) {
-        if (payload.msgs.length === 0) return;
-        queue.push(...payload.msgs);
-      } else {
-        queue.push(payload.msg);
-      }
+      const incoming = 'msgs' in payload ? payload.msgs : [payload.msg];
+      queue.push(...incoming);
       const subscription = subscriptionsByIdRef.current.get(payload.subscriptionId);
       const cap = Math.max(1, subscription?.bufferSize ?? DEFAULT_BUFFER);
       if (queue.length > cap) {
+        frontendSkippedRef.current[payload.subscriptionId] =
+          (frontendSkippedRef.current[payload.subscriptionId] ?? 0) + queue.length - cap;
         queue.splice(0, queue.length - cap);
       }
+      if (capture)
+        setCaptureById((previous) => ({
+          ...previous,
+          [payload.subscriptionId]: {
+            ...capture,
+            skipped: capture.skipped + (frontendSkippedRef.current[payload.subscriptionId] ?? 0)
+          }
+        }));
+      if (incoming.length === 0) return;
       pendingMessagesRef.current[payload.subscriptionId] = queue;
       scheduleFlush();
     });
   }, [scheduleFlush]);
 
-  useEffect(() => {
-    const carto = getCarto();
-    if (!carto || !status.connected) {
-      setRecentKeys([]);
-      return;
-    }
-
-    let mounted = true;
-    const fetchKeys = async () => {
+  const connect = useCallback(
+    async (params: ConnectParams) => {
+      const carto = getCarto();
+      if (!carto) return;
+      await queryClient.cancelQueries({ queryKey: ['carto'] });
+      queryClient.removeQueries({ queryKey: ['carto'] });
+      resetLocalState();
+      await carto.connect({ ...params, mode: 'client' });
+      setLastEndpoint(params.endpoint);
       try {
-        const list = await carto.getRecentKeys({ filter: recentKeysFilter });
-        if (mounted) setRecentKeys(list);
+        window.localStorage.setItem(LAST_ENDPOINT_STORAGE_KEY, params.endpoint);
       } catch {
-        // ignore polling errors
+        // Storage can be unavailable in hardened or private browser contexts.
       }
-    };
-
-    fetchKeys();
-    const timer = setInterval(fetchKeys, 1000);
-    return () => {
-      mounted = false;
-      clearInterval(timer);
-    };
-  }, [status.connected, recentKeysFilter]);
-
-  useEffect(() => {
-    const carto = getCarto();
-    if (!carto || !status.connected) {
-      setQueryables([]);
-      return;
-    }
-
-    let mounted = true;
-    const fetchQueryables = async () => {
-      try {
-        const list = await carto.getQueryables();
-        if (mounted) setQueryables(list);
-      } catch {
-        // ignore polling errors
-      }
-    };
-
-    fetchQueryables();
-    const timer = setInterval(fetchQueryables, 1000);
-    return () => {
-      mounted = false;
-      clearInterval(timer);
-    };
-  }, [status.connected]);
-
-  useEffect(() => {
-    const carto = getCarto();
-    if (!carto || !status.connected || !selectedSubId) {
-      setSelectedRecentKeys([]);
-      return;
-    }
-
-    let mounted = true;
-    const fetchKeys = async () => {
-      try {
-        const list = await carto.getRecentKeys({
-          filter: recentKeysFilter,
-          subscriptionId: selectedSubId
-        });
-        if (mounted) setSelectedRecentKeys(list);
-      } catch {
-        // ignore polling errors
-      }
-    };
-
-    fetchKeys();
-    const timer = setInterval(fetchKeys, 1000);
-    return () => {
-      mounted = false;
-      clearInterval(timer);
-    };
-  }, [status.connected, recentKeysFilter, selectedSubId]);
-
-  const connect = useCallback(async (params: ConnectParams) => {
-    const carto = getCarto();
-    if (!carto) return;
-    resetLocalState();
-    await carto.connect({ ...params, mode: 'client' });
-    setLastEndpoint(params.endpoint);
-    try {
-      window.localStorage.setItem(LAST_ENDPOINT_STORAGE_KEY, params.endpoint);
-    } catch {
-      // Storage can be unavailable in hardened or private browser contexts.
-    }
-  }, [resetLocalState]);
+    },
+    [resetLocalState, queryClient]
+  );
 
   const testConnection = useCallback(
     async (params: ConnectionTestParams): Promise<ConnectionTestResult> => {
@@ -283,8 +254,8 @@ export const useCarto = () => {
     const carto = getCarto();
     if (!carto) return;
     await carto.disconnect();
-    resetLocalState();
-  }, [resetLocalState]);
+    // Retain the current investigation until the user starts a new connection.
+  }, []);
 
   const subscribe = useCallback(async (keyexpr: string, bufferSize?: number) => {
     const carto = getCarto();
@@ -313,16 +284,21 @@ export const useCarto = () => {
 
       const current = subscriptionsByIdRef.current.get(subscriptionId);
       await carto.updateSubscription({ subscriptionId, keyexpr, bufferSize });
+      await queryClient.invalidateQueries({ queryKey: ['carto', 'keys', subscriptionId] });
 
       const trimmedKeyexpr = keyexpr.trim();
       const keyexprChanged = current ? current.keyexpr !== trimmedKeyexpr : true;
       resetPendingMessages(subscriptionId);
 
       if (keyexprChanged) {
+        setCaptureById((previous) => {
+          const next = { ...previous };
+          delete next[subscriptionId];
+          return next;
+        });
         messagesBySubRef.current[subscriptionId] = [];
         if (selectedSubIdRef.current === subscriptionId) {
           setSelectedMessages([]);
-          setSelectedRecentKeys([]);
         }
       } else {
         const messages = messagesBySubRef.current[subscriptionId] ?? [];
@@ -344,24 +320,28 @@ export const useCarto = () => {
       );
       setSelectedSubId(subscriptionId);
     },
-    [resetPendingMessages]
+    [resetPendingMessages, queryClient]
   );
 
-  const unsubscribe = useCallback(async (subscriptionId: string) => {
-    const carto = getCarto();
-    if (!carto) return;
-    await carto.unsubscribe({ subscriptionId });
-    resetPendingMessages(subscriptionId);
-    delete messagesBySubRef.current[subscriptionId];
-    setSubscriptions((prev) => {
-      const next = prev.filter((sub) => sub.id !== subscriptionId);
-      setSelectedSubId((current) => {
-        if (current !== subscriptionId) return current;
-        return next[0]?.id ?? null;
+  const unsubscribe = useCallback(
+    async (subscriptionId: string) => {
+      const carto = getCarto();
+      if (!carto) return;
+      await carto.unsubscribe({ subscriptionId });
+      resetPendingMessages(subscriptionId);
+      delete messagesBySubRef.current[subscriptionId];
+      setSubscriptions((prev) => {
+        const next = prev.filter((sub) => sub.id !== subscriptionId);
+        setSelectedSubId((current) => {
+          if (current !== subscriptionId) return current;
+          const closedIndex = prev.findIndex((sub) => sub.id === subscriptionId);
+          return next[Math.min(closedIndex, next.length - 1)]?.id ?? null;
+        });
+        return next;
       });
-      return next;
-    });
-  }, [resetPendingMessages]);
+    },
+    [resetPendingMessages]
+  );
 
   const setPaused = useCallback(async (subscriptionId: string, paused: boolean) => {
     const carto = getCarto();
@@ -372,16 +352,19 @@ export const useCarto = () => {
     );
   }, []);
 
-  const clearBuffer = useCallback(async (subscriptionId: string) => {
-    const carto = getCarto();
-    if (!carto) return;
-    await carto.clearBuffer({ subscriptionId });
-    resetPendingMessages(subscriptionId);
-    messagesBySubRef.current[subscriptionId] = [];
-    if (selectedSubIdRef.current === subscriptionId) {
-      setSelectedMessages([]);
-    }
-  }, [resetPendingMessages]);
+  const clearBuffer = useCallback(
+    async (subscriptionId: string) => {
+      const carto = getCarto();
+      if (!carto) return;
+      await carto.clearBuffer({ subscriptionId });
+      resetPendingMessages(subscriptionId);
+      messagesBySubRef.current[subscriptionId] = [];
+      if (selectedSubIdRef.current === subscriptionId) {
+        setSelectedMessages([]);
+      }
+    },
+    [resetPendingMessages]
+  );
 
   const getMessage = useCallback(async (subscriptionId: string, messageId: string) => {
     const carto = getCarto();
@@ -390,10 +373,10 @@ export const useCarto = () => {
   }, []);
 
   const publish = useCallback(
-    async (keyexpr: string, payload: string, encoding: PublishEncoding) => {
+    async (keyexpr: string, payload: string, encoding: PublishEncoding, wireEncoding?: string) => {
       const carto = getCarto();
       if (!carto) return;
-      await carto.publish({ keyexpr, payload, encoding });
+      await carto.publish({ keyexpr, payload, encoding, wireEncoding });
     },
     []
   );
@@ -405,18 +388,21 @@ export const useCarto = () => {
         throw new Error('Carto API is unavailable.');
       }
       const queryableId = await carto.declareQueryable({ keyexpr, payload, encoding, complete });
-      setQueryables(await carto.getQueryables());
+      await queryClient.invalidateQueries({ queryKey: ['carto', 'queryables'] });
       return queryableId;
     },
-    []
+    [queryClient]
   );
 
-  const undeclareQueryable = useCallback(async (queryableId: string) => {
-    const carto = getCarto();
-    if (!carto) return;
-    await carto.undeclareQueryable({ queryableId });
-    setQueryables(await carto.getQueryables());
-  }, []);
+  const undeclareQueryable = useCallback(
+    async (queryableId: string) => {
+      const carto = getCarto();
+      if (!carto) return;
+      await carto.undeclareQueryable({ queryableId });
+      await queryClient.invalidateQueries({ queryKey: ['carto', 'queryables'] });
+    },
+    [queryClient]
+  );
 
   return {
     status,
@@ -430,6 +416,7 @@ export const useCarto = () => {
     recentKeysFilter,
     setRecentKeysFilter,
     selectedMessages,
+    captureById,
     connect,
     testConnection,
     disconnect,

@@ -6,6 +6,9 @@ import type {
 import type { CartoApi } from '../../../../packages/core/src/shared/cartoApi';
 
 const api: CartoApi = {
+  startDiscovery: (params) => ipcRenderer.invoke('carto.startDiscovery', params),
+  stopDiscovery: () => ipcRenderer.invoke('carto.stopDiscovery'),
+  getDiscovery: () => ipcRenderer.invoke('carto.getDiscovery'),
   connect: (params) => ipcRenderer.invoke('carto.connect', params),
   testConnection: (params) => ipcRenderer.invoke('carto.testConnection', params),
   disconnect: () => ipcRenderer.invoke('carto.disconnect'),

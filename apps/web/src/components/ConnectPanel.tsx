@@ -1,3 +1,20 @@
+import { DisclosureSection } from './DisclosureSection';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter
+} from './ui/dialog';
+import { Cable, BookmarkPlus, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
+import { Switch } from './ui/switch';
+import { Textarea } from './ui/textarea';
+import { NativeSelect } from './ui/native-select';
+import { Button } from './ui/button';
+import { Button as BaseButton } from '@base-ui/react/button';
+import { Input } from './ui/input';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   AuthConfig,
@@ -10,7 +27,7 @@ import type {
   TlsConfig
 } from '@shared/types';
 import type { LogInput, ToastInput } from '../utils/notifications';
-import { IconChevronDown, IconClose, IconPlug, IconSave, IconTrash } from './Icons';
+import { IconChevronDown, IconClose, IconTrash } from './Icons';
 
 const DEFAULT_ENDPOINT = (() => {
   return 'ws://127.0.0.1:10000/';
@@ -45,12 +62,7 @@ type ConnectionProfile = {
   updatedAt: number;
 };
 
-type ConnectionOptionsTab =
-  | 'profiles'
-  | 'security'
-  | 'reliability'
-  | 'advanced'
-  | 'diagnostics';
+type ConnectionOptionsTab = 'security' | 'reliability' | 'advanced';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -299,11 +311,27 @@ const ConnectPanel = ({
   const [reconnectJitter, setReconnectJitter] = useState(true);
   const [healthInterval, setHealthInterval] = useState(DEFAULT_HEALTH_INTERVAL_MS);
 
-  const [testTimeout, setTestTimeout] = useState(DEFAULT_TEST_TIMEOUT_MS);
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [testRunning, setTestRunning] = useState(false);
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
-  const [activeOptionsTab, setActiveOptionsTab] =
-    useState<ConnectionOptionsTab>('profiles');
+  const [activeOptionsTab, setActiveOptionsTab] = useState<ConnectionOptionsTab>('security');
+
+  useEffect(() => {
+    setTestResult(null);
+  }, [
+    endpoint,
+    configJson,
+    authType,
+    authUsername,
+    authPassword,
+    authToken,
+    authHeaderName,
+    authHeaderValue,
+    tlsCaPath,
+    tlsCertPath,
+    tlsKeyPath,
+    tlsVerify
+  ]);
 
   useEffect(() => {
     if (!defaultEndpoint) return;
@@ -416,6 +444,10 @@ const ConnectPanel = ({
   };
 
   const handleSaveProfile = () => {
+    if (!endpoint.trim()) {
+      setProfileError('Enter an endpoint first.');
+      return;
+    }
     const name = profileName.trim();
     if (!name) {
       setProfileError('Profile name is required.');
@@ -445,12 +477,11 @@ const ConnectPanel = ({
     };
 
     const withoutCurrent = profiles.filter((entry) => entry.id !== id);
-    const nextProfiles = [profile, ...withoutCurrent].sort(
-      (a, b) => b.updatedAt - a.updatedAt
-    );
+    const nextProfiles = [profile, ...withoutCurrent].sort((a, b) => b.updatedAt - a.updatedAt);
     saveProfiles(nextProfiles);
     setSelectedProfileId(id);
     setProfileError(null);
+    setSaveDialogOpen(false);
   };
 
   const handleDeleteProfile = () => {
@@ -488,6 +519,11 @@ const ConnectPanel = ({
         reconnectJitter
       );
       const params: ConnectParams = {
+        discovery: {
+          enabled: true,
+          keyexpr: '**',
+          durationSeconds: 15
+        },
         endpoint: trimmedEndpoint,
         configJson: configJson.trim() || undefined,
         auth,
@@ -507,7 +543,6 @@ const ConnectPanel = ({
   };
 
   const handleTestConnection = async () => {
-    setActiveOptionsTab('diagnostics');
     const trimmedEndpoint = endpoint.trim();
     if (!trimmedEndpoint) {
       setTestResult({
@@ -536,7 +571,7 @@ const ConnectPanel = ({
         configJson: configJson.trim() || undefined,
         auth,
         tls,
-        timeoutMs: parseOptionalNumber(testTimeout)
+        timeoutMs: Number(DEFAULT_TEST_TIMEOUT_MS)
       };
 
       const result = await onTestConnection(params);
@@ -601,307 +636,239 @@ const ConnectPanel = ({
     return `Failed in ${duration}`;
   }, [testResult]);
 
-  const authSummary = useMemo(() => {
-    if (authType === 'none') return 'None';
-    if (authType === 'basic') return authUsername ? `Basic (${authUsername})` : 'Basic';
-    if (authType === 'bearer') return 'Bearer token';
-    return authHeaderName ? `Header (${authHeaderName})` : 'Custom header';
-  }, [authHeaderName, authType, authUsername]);
-
-  const tlsSummary = useMemo(() => {
-    if (tlsCaPath || tlsCertPath || tlsKeyPath) return 'Custom certs';
-    if (!tlsVerify) return 'Verification off';
-    return 'Default';
-  }, [tlsCaPath, tlsCertPath, tlsKeyPath, tlsVerify]);
-
-  const reconnectSummary = useMemo(() => {
-    if (!reconnectEnabled) return 'Off';
-    const base = parseOptionalNumber(reconnectBaseDelay);
-    const max = parseOptionalNumber(reconnectMaxDelay);
-    if (base && max) return `${base}ms -> ${max}ms`;
-    return 'On';
-  }, [reconnectBaseDelay, reconnectEnabled, reconnectMaxDelay]);
-
-  const configSummary = useMemo(() => {
-    if (!configJson.trim()) return 'None';
-    return `${configJson.trim().length} chars`;
-  }, [configJson]);
-
-  const optionsLocked = busy || status.connected;
+  const optionsLocked = busy || testRunning || status.connected;
 
   return (
-    <section className="panel panel--accent connect_panel">
-      <div className="connect_intro">
-        <div>
-          <span className="connect_kicker">Router connection</span>
-          <h2>{status.connected ? 'Connected and ready' : 'Connect to a Zenoh router'}</h2>
-          <p>
-            {status.connected
-              ? 'Carto is ready to publish and monitor messages on this router.'
-              : 'Enter the Remote API WebSocket address. The defaults work for a local router.'}
-          </p>
-        </div>
-        <div className={`connect_live-state connect_live-state--${healthInfo.state}`}>
-          <span aria-hidden="true" />
-          <div>
-            <small>Current status</small>
-            <strong>{healthInfo.label}</strong>
-          </div>
-        </div>
-      </div>
+    <section className="mx-auto my-10 w-full max-w-3xl space-y-7 px-6 pb-8 text-foreground max-sm:my-6 max-sm:px-4">
+      <header className="space-y-3">
+        <span className="inline-flex size-10 items-center justify-center rounded-xl border bg-card text-primary">
+          <Cable className="size-5" />
+        </span>
+        <h2 className="text-2xl font-semibold tracking-tight">
+          {status.connected ? 'Your connection' : 'Connect to Zenoh'}
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          {status.connected
+            ? 'Disconnect to edit this connection.'
+            : 'Enter your router’s WebSocket address to start inspecting traffic.'}
+        </p>
+      </header>
 
-      <div className="connect_quick connect_quick--hero">
-        <label className="field field--combo">
-          <span>Remote API endpoint</span>
-          <div className="combo" ref={comboRef}>
-            <input
-              ref={endpointInputRef}
-              className="combo_input"
-              type="text"
-              value={endpoint}
-              onChange={(event) => {
-                setEndpoint(event.target.value);
-                setLocalError(null);
-              }}
-              onFocus={() => {
-                if (suppressHistoryOpenRef.current) {
-                  suppressHistoryOpenRef.current = false;
-                  return;
-                }
-                if (endpointHistory.length > 0) setShowHistory(true);
-              }}
-              placeholder={DEFAULT_ENDPOINT}
-              disabled={busy || status.connected}
-            />
-            <button
-              className="combo_toggle"
-              type="button"
-              onClick={() => setShowHistory((prev) => !prev)}
-              aria-label="Toggle endpoint history"
-              disabled={busy || status.connected}
+      <div className="space-y-5 rounded-2xl border bg-card p-5 sm:p-6">
+        {profiles.length > 0 && (
+          <label className="flex flex-col gap-2 text-sm font-medium">
+            Saved connection
+            <NativeSelect
+              value={selectedProfileId}
+              onChange={(event) => setSelectedProfileId(event.target.value)}
+              disabled={optionsLocked}
             >
-              <span className="combo_icon" aria-hidden="true">
-                <IconChevronDown />
-              </span>
-            </button>
-            {showHistory ? (
-              <div className="combo_menu" role="listbox">
-                {endpointHistory.length === 0 ? (
-                  <div className="combo_empty">No recent endpoints yet.</div>
-                ) : (
-                  endpointHistory.map((entry) => (
-                    <div key={entry} className="combo_option">
-                      <button
-                        className="combo_option_button"
-                        type="button"
-                        role="option"
-                        onClick={() => {
-                          setEndpoint(entry);
-                          setLocalError(null);
-                          setShowHistory(false);
-                          suppressHistoryOpenRef.current = true;
-                          endpointInputRef.current?.focus();
-                        }}
-                      >
-                        {entry}
-                      </button>
-                      <button
-                        className="icon-button icon-button--compact icon-button--ghost combo_option_remove"
-                        type="button"
-                        title={`Remove ${entry}`}
-                        aria-label={`Remove ${entry} from history`}
-                        onClick={() => handleRemoveHistory(entry)}
-                      >
-                        <span className="icon-button_icon" aria-hidden="true">
-                          <IconClose />
-                        </span>
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            ) : null}
-          </div>
-          <span className="helper">
-            {status.connected
-              ? 'Disconnect before changing this endpoint or its connection options.'
-              : 'Default: ws://127.0.0.1:10000/'}
-          </span>
-        </label>
-
-        <div className="connect_actions">
-          <button
-            className="button button--ghost"
-            onClick={() => handleTestConnection()}
-            disabled={busy || testRunning}
-            type="button"
-          >
-            {testRunning ? 'Checking…' : 'Check endpoint'}
-          </button>
-          {!status.connected ? (
-            <button
-              className="button connect_primary"
-              onClick={handleConnect}
-              disabled={busy || !endpoint.trim()}
-            >
-              <span className="button_icon" aria-hidden="true">
-                <IconPlug />
-              </span>{' '}
-              Connect to router
-            </button>
-          ) : null}
-        </div>
-      </div>
-
-      {healthInfo.detail ? (
-        <div className="notice notice--info notice--info-progress">{healthInfo.detail}</div>
-      ) : null}
-      {localError ? <div className="notice notice--error">{localError}</div> : null}
-      {status.error ? <div className="panel_error">{status.error}</div> : null}
-
-      <section className="connect_options" aria-labelledby="connection-options-title">
-        <div className="connect_options-head">
-          <div>
-            <h3 id="connection-options-title">Connection options</h3>
-            <p>Optional settings for secured, remote, or unreliable networks.</p>
-          </div>
-          {status.connected ? <span className="connect_options-lock">Locked while connected</span> : null}
-        </div>
-
-        <div className="connect_options-tabs" role="tablist" aria-label="Connection options">
-          <button
-            id="connection-tab-profiles"
-            className={`connect_options-tab ${activeOptionsTab === 'profiles' ? 'connect_options-tab--active' : ''}`}
-            type="button"
-            role="tab"
-            aria-selected={activeOptionsTab === 'profiles'}
-            aria-controls="connection-panel-profiles"
-            onClick={() => setActiveOptionsTab('profiles')}
-          >
-            <span>Profiles</span>
-            <small>{profiles.length} saved</small>
-          </button>
-          <button
-            id="connection-tab-security"
-            className={`connect_options-tab ${activeOptionsTab === 'security' ? 'connect_options-tab--active' : ''}`}
-            type="button"
-            role="tab"
-            aria-selected={activeOptionsTab === 'security'}
-            aria-controls="connection-panel-security"
-            onClick={() => setActiveOptionsTab('security')}
-          >
-            <span>Security</span>
-            <small>{authSummary} · TLS {tlsSummary}</small>
-          </button>
-          <button
-            id="connection-tab-reliability"
-            className={`connect_options-tab ${activeOptionsTab === 'reliability' ? 'connect_options-tab--active' : ''}`}
-            type="button"
-            role="tab"
-            aria-selected={activeOptionsTab === 'reliability'}
-            aria-controls="connection-panel-reliability"
-            onClick={() => setActiveOptionsTab('reliability')}
-          >
-            <span>Reliability</span>
-            <small>{reconnectSummary}</small>
-          </button>
-          <button
-            id="connection-tab-advanced"
-            className={`connect_options-tab ${activeOptionsTab === 'advanced' ? 'connect_options-tab--active' : ''}`}
-            type="button"
-            role="tab"
-            aria-selected={activeOptionsTab === 'advanced'}
-            aria-controls="connection-panel-advanced"
-            onClick={() => setActiveOptionsTab('advanced')}
-          >
-            <span>Advanced</span>
-            <small>Config {configSummary}</small>
-          </button>
-          <button
-            id="connection-tab-diagnostics"
-            className={`connect_options-tab ${activeOptionsTab === 'diagnostics' ? 'connect_options-tab--active' : ''}`}
-            type="button"
-            role="tab"
-            aria-selected={activeOptionsTab === 'diagnostics'}
-            aria-controls="connection-panel-diagnostics"
-            onClick={() => setActiveOptionsTab('diagnostics')}
-          >
-            <span>Diagnostics</span>
-            <small>{testSummary ?? 'Not run'}</small>
-          </button>
-        </div>
-
-        <div className="connect_options-body">
-          {activeOptionsTab === 'profiles' ? (
-            <div
-              id="connection-panel-profiles"
-              className="connect_options-panel"
-              role="tabpanel"
-              aria-labelledby="connection-tab-profiles"
-            >
-              <fieldset className="connect_options-fieldset" disabled={optionsLocked}>
-                <div className="connect_grid">
-                  <label className="field">
-                    <span>Saved profiles</span>
-                    <select
-                      value={selectedProfileId}
-                      onChange={(event) => setSelectedProfileId(event.target.value)}
-                    >
-                      <option value="">Select a profile</option>
-                      {profiles.map((profile) => (
-                        <option key={profile.id} value={profile.id}>
-                          {profile.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span>Profile name</span>
-                    <input
-                      type="text"
-                      value={profileName}
-                      onChange={(event) => {
-                        setProfileName(event.target.value);
-                        setProfileError(null);
-                      }}
-                      placeholder="My router"
-                    />
-                  </label>
+              <option value="">Custom connection</option>
+              {profiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name}
+                </option>
+              ))}
+            </NativeSelect>
+          </label>
+        )}
+        <div className="flex items-end gap-3 max-sm:flex-col max-sm:items-stretch">
+          <label className="flex min-w-0 flex-1 flex-col gap-2 text-sm font-medium">
+            <span>Remote API endpoint</span>
+            <div className="combo" ref={comboRef}>
+              <Input
+                ref={endpointInputRef}
+                className="combo_input h-11 rounded-xl font-mono"
+                type="text"
+                value={endpoint}
+                onChange={(event) => {
+                  setEndpoint(event.target.value);
+                  setLocalError(null);
+                }}
+                onFocus={() => {
+                  if (suppressHistoryOpenRef.current) {
+                    suppressHistoryOpenRef.current = false;
+                    return;
+                  }
+                  if (endpointHistory.length > 0) setShowHistory(true);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !showHistory && !optionsLocked) {
+                    event.preventDefault();
+                    void handleConnect();
+                  }
+                }}
+                placeholder={DEFAULT_ENDPOINT}
+                disabled={optionsLocked}
+              />
+              <BaseButton
+                className="combo_toggle"
+                type="button"
+                onClick={() => setShowHistory((prev) => !prev)}
+                aria-label="Toggle endpoint history"
+                disabled={optionsLocked}
+              >
+                <span className="combo_icon" aria-hidden="true">
+                  <IconChevronDown />
+                </span>
+              </BaseButton>
+              {showHistory ? (
+                <div className="combo_menu" role="listbox">
+                  {endpointHistory.length === 0 ? (
+                    <div className="combo_empty">No recent endpoints yet.</div>
+                  ) : (
+                    endpointHistory.map((entry) => (
+                      <div key={entry} className="combo_option">
+                        <BaseButton
+                          className="combo_option_button"
+                          type="button"
+                          role="option"
+                          onClick={() => {
+                            setEndpoint(entry);
+                            setLocalError(null);
+                            setShowHistory(false);
+                            suppressHistoryOpenRef.current = true;
+                            endpointInputRef.current?.focus();
+                          }}
+                        >
+                          {entry}
+                        </BaseButton>
+                        <Button
+                          variant="outline"
+                          size="icon-sm"
+                          className="icon-button icon-button--compact icon-button--ghost combo_option_remove"
+                          type="button"
+                          title={`Remove ${entry}`}
+                          aria-label={`Remove ${entry} from history`}
+                          onClick={() => handleRemoveHistory(entry)}
+                        >
+                          <span className="icon-button_icon" aria-hidden="true">
+                            <IconClose />
+                          </span>
+                        </Button>
+                      </div>
+                    ))
+                  )}
                 </div>
-                <div className="connect_row">
-                  <button className="button button--ghost" onClick={handleSaveProfile} type="button">
-                    <span className="button_icon" aria-hidden="true">
-                      <IconSave />
-                    </span>{' '}
-                    Save profile
-                  </button>
-                  <button
-                    className="button button--ghost"
-                    onClick={handleDeleteProfile}
-                    disabled={!selectedProfileId}
-                    type="button"
-                  >
-                    <span className="button_icon" aria-hidden="true">
-                      <IconTrash />
-                    </span>{' '}
-                    Delete
-                  </button>
-                </div>
-              </fieldset>
-              <p className="helper">
-                Profiles save this endpoint and its non-secret options. Passwords, tokens, and
-                custom header values are never stored.
-              </p>
-              {profileError ? <div className="notice notice--error">{profileError}</div> : null}
+              ) : null}
             </div>
-          ) : null}
+          </label>
+          {!status.connected && (
+            <Button
+              className="h-11 rounded-xl px-5"
+              disabled={busy || testRunning || !endpoint.trim()}
+              onClick={handleConnect}
+            >
+              {busy ? 'Connecting…' : 'Connect'}
+              <ArrowRight className="size-4" />
+            </Button>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="-ml-2 text-muted-foreground"
+            disabled={busy || testRunning || !endpoint.trim()}
+            onClick={() => void handleTestConnection()}
+          >
+            {testRunning ? 'Testing…' : 'Test connection'}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="-mr-2 text-muted-foreground"
+            disabled={optionsLocked || !endpoint.trim()}
+            onClick={() => {
+              setProfileError(null);
+              setSaveDialogOpen(true);
+            }}
+          >
+            <BookmarkPlus />
+            {selectedProfileId ? 'Edit saved connection' : 'Save connection'}
+          </Button>
+        </div>
+        {testResult && (
+          <div
+            role={testResult.ok ? 'status' : 'alert'}
+            className={
+              testResult.ok
+                ? 'flex items-start gap-2 rounded-lg bg-primary/5 p-3 text-xs text-primary'
+                : 'rounded-lg bg-destructive/10 p-3 text-xs text-destructive'
+            }
+          >
+            {testResult.ok && <CheckCircle2 className="size-4 shrink-0" />}
+            <div>
+              {testResult.ok ? testSummary : (testResult.error ?? 'Connection test failed.')}
+              {testResult.hint && <p className="mt-1">{testResult.hint}</p>}
+            </div>
+          </div>
+        )}
+        {!status.connected && (
+          <p className="text-xs text-muted-foreground">
+            Carto will discover active keys automatically after connecting.
+          </p>
+        )}
+      </div>
+      {healthInfo.detail && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {healthInfo.detail}
+        </p>
+      )}
+      {(localError || status.error) && (
+        <p role="alert" className="rounded-xl bg-destructive/10 p-4 text-sm text-destructive">
+          {localError || status.error}
+        </p>
+      )}
 
+      <DisclosureSection
+        title="Advanced settings"
+        description={
+          [
+            authType !== 'none' ? 'Authentication configured' : '',
+            tlsCaPath || tlsCertPath || tlsKeyPath || !tlsVerify ? 'Custom TLS' : '',
+            !reconnectEnabled ? 'Auto-reconnect off' : '',
+            configJson.trim() ? 'Custom configuration' : ''
+          ]
+            .filter(Boolean)
+            .join(' · ') || 'Security, automatic reconnect, and custom configuration'
+        }
+      >
+        {status.connected && (
+          <p className="mb-4 text-xs text-muted-foreground">Disconnect to change these settings.</p>
+        )}
+        <Tabs
+          value={activeOptionsTab}
+          onValueChange={(value) => setActiveOptionsTab(value as ConnectionOptionsTab)}
+          className="min-w-0 gap-6"
+        >
+          <TabsList
+            className="grid w-full grid-cols-3 gap-1 rounded-xl p-1 group-data-horizontal/tabs:h-auto"
+            aria-label="Advanced connection settings"
+          >
+            <TabsTrigger
+              value="security"
+              className="h-10 min-w-0 rounded-lg px-2 text-xs sm:text-sm"
+            >
+              Security
+            </TabsTrigger>
+            <TabsTrigger
+              value="reliability"
+              className="h-10 min-w-0 rounded-lg px-2 text-xs sm:text-sm"
+            >
+              Reconnect
+            </TabsTrigger>
+            <TabsTrigger
+              value="advanced"
+              className="h-10 min-w-0 rounded-lg px-2 text-xs sm:text-sm"
+            >
+              Configuration
+            </TabsTrigger>
+          </TabsList>
           {activeOptionsTab === 'security' ? (
-            <div
-              id="connection-panel-security"
+            <TabsContent
+              value="security"
               className="connect_options-panel connect_options-panel--split"
-              role="tabpanel"
-              aria-labelledby="connection-tab-security"
             >
               <fieldset className="connect_options-fieldset" disabled={optionsLocked}>
                 <div className="connect_option-section">
@@ -911,7 +878,7 @@ const ConnectPanel = ({
                   </div>
                   <label className="field">
                     <span>Authentication method</span>
-                    <select
+                    <NativeSelect
                       value={authType}
                       onChange={(event) => setAuthType(event.target.value as AuthConfig['type'])}
                     >
@@ -919,13 +886,13 @@ const ConnectPanel = ({
                       <option value="basic">Basic (username + password)</option>
                       <option value="bearer">Bearer token</option>
                       <option value="header">Custom header</option>
-                    </select>
+                    </NativeSelect>
                   </label>
                   {authType === 'basic' ? (
                     <div className="connect_grid">
                       <label className="field">
                         <span>Username</span>
-                        <input
+                        <Input
                           type="text"
                           value={authUsername}
                           onChange={(event) => setAuthUsername(event.target.value)}
@@ -933,7 +900,7 @@ const ConnectPanel = ({
                       </label>
                       <label className="field">
                         <span>Password</span>
-                        <input
+                        <Input
                           type="password"
                           value={authPassword}
                           onChange={(event) => setAuthPassword(event.target.value)}
@@ -944,7 +911,7 @@ const ConnectPanel = ({
                   {authType === 'bearer' ? (
                     <label className="field">
                       <span>Bearer token</span>
-                      <input
+                      <Input
                         type="password"
                         value={authToken}
                         onChange={(event) => setAuthToken(event.target.value)}
@@ -955,7 +922,7 @@ const ConnectPanel = ({
                     <div className="connect_grid">
                       <label className="field">
                         <span>Header name</span>
-                        <input
+                        <Input
                           type="text"
                           value={authHeaderName}
                           onChange={(event) => setAuthHeaderName(event.target.value)}
@@ -963,7 +930,7 @@ const ConnectPanel = ({
                       </label>
                       <label className="field">
                         <span>Header value</span>
-                        <input
+                        <Input
                           type="text"
                           value={authHeaderValue}
                           onChange={(event) => setAuthHeaderValue(event.target.value)}
@@ -981,7 +948,7 @@ const ConnectPanel = ({
                   <div className="connect_grid">
                     <label className="field">
                       <span>CA certificate path</span>
-                      <input
+                      <Input
                         type="text"
                         value={tlsCaPath}
                         onChange={(event) => setTlsCaPath(event.target.value)}
@@ -990,7 +957,7 @@ const ConnectPanel = ({
                     </label>
                     <label className="field">
                       <span>Client certificate path</span>
-                      <input
+                      <Input
                         type="text"
                         value={tlsCertPath}
                         onChange={(event) => setTlsCertPath(event.target.value)}
@@ -999,7 +966,7 @@ const ConnectPanel = ({
                     </label>
                     <label className="field">
                       <span>Client key path</span>
-                      <input
+                      <Input
                         type="text"
                         value={tlsKeyPath}
                         onChange={(event) => setTlsKeyPath(event.target.value)}
@@ -1008,42 +975,34 @@ const ConnectPanel = ({
                     </label>
                   </div>
                   <label className="field field--inline">
-                    <input
-                      type="checkbox"
+                    <Switch
                       checked={tlsVerify}
-                      onChange={(event) => setTlsVerify(event.target.checked)}
+                      onCheckedChange={(checked) => setTlsVerify(checked)}
                     />
                     <span>Verify server certificate (recommended)</span>
                   </label>
                 </div>
               </fieldset>
-            </div>
+            </TabsContent>
           ) : null}
-
           {activeOptionsTab === 'reliability' ? (
-            <div
-              id="connection-panel-reliability"
-              className="connect_options-panel"
-              role="tabpanel"
-              aria-labelledby="connection-tab-reliability"
-            >
+            <TabsContent value="reliability" className="connect_options-panel">
               <fieldset className="connect_options-fieldset" disabled={optionsLocked}>
                 <div className="connect_option-heading">
                   <h4>Automatic reconnect</h4>
                   <p>Keep Carto attached when a router or network briefly disappears.</p>
                 </div>
                 <label className="field field--inline">
-                  <input
-                    type="checkbox"
+                  <Switch
                     checked={reconnectEnabled}
-                    onChange={(event) => setReconnectEnabled(event.target.checked)}
+                    onCheckedChange={(checked) => setReconnectEnabled(checked)}
                   />
                   <span>Reconnect automatically with exponential backoff</span>
                 </label>
                 <div className="connect_grid">
                   <label className="field">
                     <span>Initial delay (ms)</span>
-                    <input
+                    <Input
                       type="number"
                       min={250}
                       step={250}
@@ -1054,7 +1013,7 @@ const ConnectPanel = ({
                   </label>
                   <label className="field">
                     <span>Maximum delay (ms)</span>
-                    <input
+                    <Input
                       type="number"
                       min={250}
                       step={250}
@@ -1065,7 +1024,7 @@ const ConnectPanel = ({
                   </label>
                   <label className="field">
                     <span>Stop after</span>
-                    <input
+                    <Input
                       type="number"
                       min={1}
                       step={1}
@@ -1078,25 +1037,18 @@ const ConnectPanel = ({
                   </label>
                 </div>
                 <label className="field field--inline">
-                  <input
-                    type="checkbox"
+                  <Switch
                     checked={reconnectJitter}
-                    onChange={(event) => setReconnectJitter(event.target.checked)}
+                    onCheckedChange={(checked) => setReconnectJitter(checked)}
                     disabled={!reconnectEnabled}
                   />
                   <span>Randomize retry timing to avoid reconnect spikes</span>
                 </label>
               </fieldset>
-            </div>
+            </TabsContent>
           ) : null}
-
           {activeOptionsTab === 'advanced' ? (
-            <div
-              id="connection-panel-advanced"
-              className="connect_options-panel"
-              role="tabpanel"
-              aria-labelledby="connection-tab-advanced"
-            >
+            <TabsContent value="advanced" className="connect_options-panel">
               <fieldset className="connect_options-fieldset" disabled={optionsLocked}>
                 <div className="connect_option-heading">
                   <h4>Session configuration</h4>
@@ -1104,7 +1056,7 @@ const ConnectPanel = ({
                 </div>
                 <label className="field connect_health-field">
                   <span>Health check interval (ms)</span>
-                  <input
+                  <Input
                     type="number"
                     min={0}
                     step={500}
@@ -1115,7 +1067,7 @@ const ConnectPanel = ({
                 </label>
                 <label className="field">
                   <span>Driver config JSON</span>
-                  <textarea
+                  <Textarea
                     value={configJson}
                     onChange={(event) => {
                       setConfigJson(event.target.value);
@@ -1126,76 +1078,74 @@ const ConnectPanel = ({
                   />
                 </label>
               </fieldset>
-            </div>
+            </TabsContent>
           ) : null}
+        </Tabs>
+      </DisclosureSection>
 
-          {activeOptionsTab === 'diagnostics' ? (
-            <div
-              id="connection-panel-diagnostics"
-              className="connect_options-panel"
-              role="tabpanel"
-              aria-labelledby="connection-tab-diagnostics"
-            >
-              <div className="connect_option-heading">
-                <h4>Endpoint check</h4>
-                <p>Open a temporary session and report the server capabilities.</p>
-              </div>
-              <div className="connect_diagnostics-controls">
-                <label className="field">
-                  <span>Timeout (ms)</span>
-                  <input
-                    type="number"
-                    min={1000}
-                    step={500}
-                    value={testTimeout}
-                    onChange={(event) => setTestTimeout(event.target.value)}
-                    disabled={busy || testRunning}
-                  />
-                </label>
-                <button
-                  className="button button--ghost"
+      <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {selectedProfileId ? 'Edit saved connection' : 'Save connection'}
+            </DialogTitle>
+            <DialogDescription>
+              Keep this endpoint and its settings for next time. Credentials are never saved.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="space-y-5"
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleSaveProfile();
+            }}
+          >
+            <label className="flex flex-col gap-2 text-sm font-medium">
+              Connection name
+              <Input
+                value={profileName}
+                onChange={(event) => {
+                  setProfileName(event.target.value);
+                  setProfileError(null);
+                }}
+                placeholder="e.g. Local development"
+                disabled={optionsLocked}
+              />
+            </label>
+            <p className="truncate rounded-lg bg-muted p-3 font-mono text-xs text-muted-foreground">
+              {endpoint}
+            </p>
+            {profileError && (
+              <p role="alert" className="text-sm text-destructive">
+                {profileError}
+              </p>
+            )}
+            <DialogFooter>
+              {selectedProfileId && (
+                <Button
                   type="button"
-                  onClick={() => handleTestConnection()}
-                  disabled={busy || testRunning}
+                  variant="destructive"
+                  className="sm:mr-auto"
+                  disabled={optionsLocked}
+                  onClick={() => {
+                    handleDeleteProfile();
+                    setSaveDialogOpen(false);
+                  }}
                 >
-                  {testRunning ? 'Checking…' : 'Run check'}
-                </button>
-              </div>
-              {testResult?.ok && testResult.capabilities ? (
-                <div className="diagnostics_block">
-                  <div className="diagnostics_row">
-                    <span className="diagnostics_label">Result</span>
-                    <span>{testSummary}</span>
-                  </div>
-                  <div className="diagnostics_row">
-                    <span className="diagnostics_label">Driver</span>
-                    <span>{testResult.capabilities.driver}</span>
-                  </div>
-                  {testResult.capabilities.zenoh ? (
-                    <div className="diagnostics_row">
-                      <span className="diagnostics_label">Zenoh</span>
-                      <span>{testResult.capabilities.zenoh}</span>
-                    </div>
-                  ) : null}
-                  {testResult.capabilities.remoteApi ? (
-                    <div className="diagnostics_row">
-                      <span className="diagnostics_label">Remote API</span>
-                      <span>{testResult.capabilities.remoteApi}</span>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-              {!testResult?.ok && testResult?.error ? (
-                <div className="notice notice--error">{testResult.error}</div>
-              ) : null}
-              {testResult?.hint ? (
-                <div className="notice notice--info notice--info-warning">{testResult.hint}</div>
-              ) : null}
-              {!testResult ? <p className="connect_diagnostics-empty">No check has been run yet.</p> : null}
-            </div>
-          ) : null}
-        </div>
-      </section>
+                  <IconTrash />
+                  Delete
+                </Button>
+              )}
+              <Button type="button" variant="outline" onClick={() => setSaveDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={optionsLocked || !profileName.trim()}>
+                Save connection
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 };

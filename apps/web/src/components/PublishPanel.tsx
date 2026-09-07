@@ -1,34 +1,45 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PublishEncoding } from '@shared/types';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { ToggleGroup } from '@base-ui/react/toggle-group';
+import { Toggle } from '@base-ui/react/toggle';
+import { Braces, Check, Copy, LoaderCircle, Send, Trash2 } from 'lucide-react';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Textarea } from './ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { KeyExpressionInput } from './KeyExpressionInput';
+import { ProtobufSchemaDialog } from './ProtobufSchemaDialog';
+import type { AddProtoSchemas, ProtoTypeOption } from '../utils/proto';
 import type { LogInput, ToastInput } from '../utils/notifications';
-import type { ProtoTypeOption } from '../utils/proto';
-import { IconChevronDown, IconClose, IconCopy, IconPublish, IconTrash } from './Icons';
-
-export const DEFAULT_PUBLISH_KEYEXPR = 'demo/publish';
-export const DEFAULT_PUBLISH_JSON = '{\n  "message": "hello from Carto"\n}';
-const KEYEXPR_HISTORY_KEY = 'carto.keyexpr.publish.history';
-const KEYEXPR_HISTORY_DETAILS_KEY = 'carto.keyexpr.publish.details';
-const MAX_KEYEXPR_HISTORY = 8;
-const HISTORY_EVENT = 'carto.history.updated';
-
-export type PublishDraft = {
-  keyexpr: string;
-  encoding: PublishEncoding | 'protobuf';
-  payload: string;
-  protoTypeId?: string;
-};
-
+import { usePublishHistory } from '../hooks/usePublishHistory';
+import { usePublishEditorSize } from '../hooks/usePublishEditorSize';
+import {
+  defaultWireEncoding,
+  formatLabel,
+  publishFormats,
+  validatePublishDraft,
+  type PublishDraft
+} from '../utils/publishComposer';
+export {
+  DEFAULT_PUBLISH_KEYEXPR,
+  DEFAULT_PUBLISH_JSON,
+  type PublishDraft
+} from '../utils/publishComposer';
 type PublishPanelProps = {
   connected: boolean;
   publishSupport: 'supported' | 'unknown' | 'unsupported';
   queryableSupport: 'supported' | 'unknown' | 'unsupported';
   draft: PublishDraft;
   onDraftChange: (next: PublishDraft) => void;
+  onEncodingChange: (next: PublishDraft) => void;
+  validateProtoDraft: (typeId: string, payload: string) => string | null;
+  onAddSchema: AddProtoSchemas;
+  targetAccessory?: ReactNode;
   onPublish: (
     keyexpr: string,
     payload: string,
     encoding: PublishDraft['encoding'],
-    protoTypeId?: string
+    protoTypeId?: string,
+    wireEncoding?: string
   ) => Promise<void>;
   onDeclareQueryable: (
     keyexpr: string,
@@ -42,591 +53,373 @@ type PublishPanelProps = {
   protoTypes: ProtoTypeOption[];
 };
 
-const mergeHistory = (base: string[], add: string[]) => {
-  const combined = [...add, ...base];
-  const seen = new Set<string>();
-  const next: string[] = [];
-  for (const entry of combined) {
-    if (!seen.has(entry)) {
-      seen.add(entry);
-      next.push(entry);
-    }
-  }
-  return next.slice(0, MAX_KEYEXPR_HISTORY);
-};
-
-const persistHistory = (entries: string[]) => {
-  if ('localStorage' in globalThis) {
-    globalThis.localStorage.setItem(KEYEXPR_HISTORY_KEY, JSON.stringify(entries));
-  }
-};
-
 const PublishPanel = ({
   connected,
   publishSupport,
   queryableSupport,
   draft,
   onDraftChange,
+  onEncodingChange,
   onPublish,
   onDeclareQueryable,
   getProtoSamplePayload,
+  validateProtoDraft,
+  onAddSchema,
   onLog,
   onToast,
-  protoTypes
+  protoTypes,
+  targetAccessory
 }: PublishPanelProps) => {
   const [busy, setBusy] = useState(false);
-  const [keyexprHistory, setKeyexprHistory] = useState<string[]>([]);
-  const [showHistory, setShowHistory] = useState(false);
-  const comboRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const historyRef = useRef<string[]>([]);
-  const detailsRef = useRef<Record<string, PublishDraft>>({});
-  const suppressHistoryOpenRef = useRef(false);
-
-  const applyHistory = useCallback((entries: string[]) => {
-    historyRef.current = entries;
-    setKeyexprHistory(entries);
-  }, []);
-
-  const notifyHistoryUpdated = useCallback(() => {
-    if (typeof window === 'undefined') return;
-    window.dispatchEvent(new CustomEvent(HISTORY_EVENT, { detail: { type: 'publish' } }));
-  }, []);
-
-  const commitHistory = useCallback(
-    (entries: string[]) => {
-      applyHistory(entries);
-      persistHistory(entries);
-      notifyHistoryUpdated();
-    },
-    [applyHistory, notifyHistoryUpdated]
+  const busyRef = useRef(false);
+  const [schemaOpen, setSchemaOpen] = useState(false);
+  const [feedback, setFeedback] = useState<{ error: boolean; message: string } | null>(null);
+  const { entries, targets, remember } = usePublishHistory();
+  const { ref: editorRef, height: editorHeight } = usePublishEditorSize();
+  const validation = useMemo(
+    () =>
+      validatePublishDraft(
+        draft,
+        protoTypes.map((type) => type.id),
+        validateProtoDraft
+      ),
+    [draft, protoTypes, validateProtoDraft]
   );
-
-  const loadDetails = useCallback(() => {
-    if (typeof globalThis === 'undefined' || !('localStorage' in globalThis)) return {};
-    const stored = globalThis.localStorage.getItem(KEYEXPR_HISTORY_DETAILS_KEY);
-    if (!stored) return {};
+  const canSend = connected && !busy && publishSupport !== 'unsupported' && validation.valid;
+  const type = protoTypes.find((entry) => entry.id === draft.protoTypeId);
+  const jsonMode = draft.encoding === 'json' || draft.encoding === 'protobuf';
+  const send = async (queryable = false) => {
+    if (
+      busyRef.current ||
+      !connected ||
+      !validation.valid ||
+      (queryable ? queryableSupport : publishSupport) === 'unsupported'
+    )
+      return;
+    busyRef.current = true;
+    setBusy(true);
+    setFeedback(null);
+    const snapshot = { ...draft, keyexpr: draft.keyexpr.trim() };
     try {
-      const parsed = JSON.parse(stored);
-      if (!parsed || typeof parsed !== 'object') return {};
-      const next: Record<string, PublishDraft> = {};
-      Object.entries(parsed as Record<string, unknown>).forEach(([key, value]) => {
-        if (!value || typeof value !== 'object') return;
-        const entry = value as PublishDraft;
-        if (typeof entry.encoding !== 'string' || typeof entry.payload !== 'string') return;
-        next[key] = {
-          keyexpr: key,
-          encoding: entry.encoding,
-          payload: entry.payload,
-          protoTypeId: entry.protoTypeId
-        };
+      if (queryable)
+        await onDeclareQueryable(
+          snapshot.keyexpr,
+          snapshot.payload,
+          snapshot.encoding,
+          snapshot.protoTypeId
+        );
+      else
+        await onPublish(
+          snapshot.keyexpr,
+          snapshot.payload,
+          snapshot.encoding,
+          snapshot.protoTypeId,
+          snapshot.wireEncoding
+        );
+      if (!queryable) remember(snapshot);
+      setFeedback({
+        error: false,
+        message: `${queryable ? 'Serving' : 'Sent to'} ${snapshot.keyexpr}`
       });
-      return next;
-    } catch {
-      return {};
-    }
-  }, []);
-
-  const persistDetails = useCallback((next: Record<string, PublishDraft>) => {
-    if ('localStorage' in globalThis) {
-      globalThis.localStorage.setItem(KEYEXPR_HISTORY_DETAILS_KEY, JSON.stringify(next));
-    }
-  }, []);
-
-  const handleRemoveHistory = useCallback(
-    (entry: string) => {
-      const next = historyRef.current.filter((item) => item !== entry);
-      commitHistory(next);
-      const details = { ...detailsRef.current };
-      if (details[entry]) {
-        delete details[entry];
-        detailsRef.current = details;
-        persistDetails(details);
-      }
-    },
-    [commitHistory, persistDetails]
-  );
-
-  useEffect(() => {
-    if (typeof globalThis === 'undefined' || !('localStorage' in globalThis)) return;
-    const stored = globalThis.localStorage.getItem(KEYEXPR_HISTORY_KEY);
-    if (!stored) return;
-    try {
-      const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed)) {
-        const entries = parsed.filter((entry) => typeof entry === 'string');
-        applyHistory(entries);
-      }
-    } catch {
-      // ignore history parse errors
-    }
-  }, [applyHistory]);
-
-  useEffect(() => {
-    detailsRef.current = loadDetails();
-  }, [loadDetails]);
-
-  useEffect(() => {
-    const keyexpr = draft.keyexpr.trim();
-    if (!keyexpr) return;
-    if (!historyRef.current.includes(keyexpr)) return;
-    const details = { ...detailsRef.current };
-    details[keyexpr] = {
-      keyexpr,
-      encoding: draft.encoding,
-      payload: draft.payload,
-      protoTypeId: draft.protoTypeId
-    };
-    detailsRef.current = details;
-    persistDetails(details);
-  }, [draft.encoding, draft.keyexpr, draft.payload, draft.protoTypeId, persistDetails]);
-
-  useEffect(() => {
-    if (!showHistory) return;
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!comboRef.current) return;
-      if (comboRef.current.contains(event.target as Node)) return;
-      setShowHistory(false);
-    };
-    document.addEventListener('mousedown', handlePointerDown);
-    return () => document.removeEventListener('mousedown', handlePointerDown);
-  }, [showHistory]);
-
-  useEffect(() => {
-    const handleHistoryUpdate = (event: Event) => {
-      const detail = (event as CustomEvent<{ type?: string }>).detail;
-      if (detail?.type && detail.type !== 'publish') return;
-      if (typeof globalThis === 'undefined' || !('localStorage' in globalThis)) return;
-      const stored = globalThis.localStorage.getItem(KEYEXPR_HISTORY_KEY);
-      if (!stored) {
-        applyHistory([]);
-        return;
-      }
-      try {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          const entries = parsed.filter((entry) => typeof entry === 'string');
-          applyHistory(entries);
-        }
-      } catch {
-        // ignore history parse errors
-      }
-      detailsRef.current = loadDetails();
-    };
-    window.addEventListener(HISTORY_EVENT, handleHistoryUpdate as EventListener);
-    return () => window.removeEventListener(HISTORY_EVENT, handleHistoryUpdate as EventListener);
-  }, [applyHistory, loadDetails]);
-
-  const handlePublish = async () => {
-    if (!connected) return;
-    const nextKeyexpr = draft.keyexpr.trim();
-    if (draft.encoding === 'protobuf' && !draft.protoTypeId) {
-      onToast({ type: 'warn', message: 'Select a protobuf type first.' });
-      return;
-    }
-    setBusy(true);
-    try {
-      await onPublish(nextKeyexpr, draft.payload, draft.encoding, draft.protoTypeId);
-      if (nextKeyexpr) {
-        const next = mergeHistory(historyRef.current, [nextKeyexpr]);
-        commitHistory(next);
-        const details = { ...detailsRef.current };
-        details[nextKeyexpr] = {
-          keyexpr: nextKeyexpr,
-          encoding: draft.encoding,
-          payload: draft.payload,
-          protoTypeId: draft.protoTypeId
-        };
-        detailsRef.current = details;
-        persistDetails(details);
-      }
-      onToast({ type: 'ok', message: 'Sent', detail: nextKeyexpr });
-      onLog({ level: 'info', source: 'publish', message: `Published to ${nextKeyexpr}.` });
+      onLog({
+        level: 'info',
+        source: queryable ? 'queryable' : 'publish',
+        message: `${queryable ? 'Declared queryable' : 'Published to'} ${snapshot.keyexpr}.`
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      onToast({ type: 'error', message: 'Publish failed', detail: message });
-      onLog({ level: 'error', source: 'publish', message, detail: nextKeyexpr });
+      setFeedback({ error: true, message });
+      onLog({
+        level: 'error',
+        source: queryable ? 'queryable' : 'publish',
+        message,
+        detail: snapshot.keyexpr
+      });
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   };
-
-  const handleDeclareQueryable = async () => {
-    if (!connected) return;
-    const nextKeyexpr = draft.keyexpr.trim();
-    if (draft.encoding === 'protobuf' && !draft.protoTypeId) {
-      onToast({ type: 'warn', message: 'Select a protobuf type first.' });
-      return;
-    }
-    setBusy(true);
-    try {
-      await onDeclareQueryable(nextKeyexpr, draft.payload, draft.encoding, draft.protoTypeId);
-      if (nextKeyexpr) {
-        const next = mergeHistory(historyRef.current, [nextKeyexpr]);
-        commitHistory(next);
-        const details = { ...detailsRef.current };
-        details[nextKeyexpr] = {
-          keyexpr: nextKeyexpr,
-          encoding: draft.encoding,
-          payload: draft.payload,
-          protoTypeId: draft.protoTypeId
-        };
-        detailsRef.current = details;
-        persistDetails(details);
-      }
-      onToast({ type: 'ok', message: 'Queryable declared', detail: nextKeyexpr });
-      onLog({ level: 'info', source: 'queryable', message: `Declared queryable ${nextKeyexpr}.` });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      onToast({ type: 'error', message: 'Queryable failed', detail: message });
-      onLog({ level: 'error', source: 'queryable', message, detail: nextKeyexpr });
-    } finally {
-      setBusy(false);
-    }
+  const switchFormat = (encoding: PublishDraft['encoding']) => {
+    if (encoding === draft.encoding) return;
+    const firstType = protoTypes[0];
+    onEncodingChange({
+      keyexpr: draft.keyexpr,
+      encoding,
+      payload:
+        encoding === 'protobuf'
+          ? (firstType && getProtoSamplePayload(firstType.id)) || '{}'
+          : encoding === 'json'
+            ? '{}'
+            : '',
+      protoTypeId: encoding === 'protobuf' ? firstType?.id : undefined
+    });
+    setFeedback(null);
   };
-
-  const applyHistorySelection = useCallback(
-    (entry: string) => {
-      const stored = detailsRef.current[entry];
-      if (!stored) {
-        onDraftChange({ ...draft, keyexpr: entry });
-        return;
-      }
-
-      const next: PublishDraft = {
-        keyexpr: entry,
-        encoding: stored.encoding,
-        payload: stored.payload,
-        protoTypeId: stored.protoTypeId
-      };
-
-      if (stored.encoding === 'protobuf') {
-        const hasType = stored.protoTypeId
-          ? protoTypes.some((type) => type.id === stored.protoTypeId)
-          : false;
-        if (!hasType) {
-          const fallback = protoTypes[0]?.id;
-          if (fallback) {
-            next.protoTypeId = fallback;
-          } else {
-            next.encoding = 'json';
-            next.protoTypeId = undefined;
-          }
-        }
-      }
-
-      onDraftChange(next);
-    },
-    [draft, onDraftChange, protoTypes]
-  );
-
-  const renderHelper = () => {
-    if (draft.encoding === 'protobuf') {
-      return 'Payload must be valid JSON for the selected protobuf type.';
-    }
-    if (draft.encoding === 'base64') {
-      return 'Payload should be base64-encoded bytes.';
-    }
-    if (draft.encoding === 'json') {
-      return 'Payload must be valid JSON.';
-    }
-    return 'Payload will be sent as UTF-8 text.';
-  };
-
-  const selectedProtoType = useMemo(
-    () => protoTypes.find((type) => type.id === draft.protoTypeId),
-    [draft.protoTypeId, protoTypes]
-  );
-
-  const payloadLengthLabel = `${draft.payload.length} chars`;
-  const encodingLabel = draft.encoding === 'protobuf' ? 'protobuf' : draft.encoding;
-
-  const handleClearPayload = () => {
-    onDraftChange({ ...draft, payload: '' });
-  };
-
-  const handleCopyPayload = async () => {
-    if (!('clipboard' in navigator)) {
-      onToast({ type: 'warn', message: 'Clipboard is not available in this environment.' });
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(draft.payload);
-      onToast({ type: 'ok', message: 'Payload copied' });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to copy payload.';
-      onToast({ type: 'error', message: 'Copy failed', detail: message });
-    }
-  };
-
-  const samplePayloadForType = (typeId: string | undefined) => {
-    if (!typeId) return DEFAULT_PUBLISH_JSON;
-    return getProtoSamplePayload(typeId) ?? DEFAULT_PUBLISH_JSON;
-  };
-
   return (
-    <section className="panel panel--publish publish_panel">
-      <div className="publish_panel-grid">
-        <div className="publish_panel-key">
-          <label className="field field--combo publish_field">
-            <span>Target key expression</span>
-            <div className="combo" ref={comboRef}>
-              <input
-                ref={inputRef}
-                className="combo_input publish_key_input"
-                type="text"
-                value={draft.keyexpr}
-                onChange={(event) => onDraftChange({ ...draft, keyexpr: event.target.value })}
-                onFocus={() => {
-                  if (suppressHistoryOpenRef.current) {
-                    suppressHistoryOpenRef.current = false;
-                    return;
-                  }
-                  if (keyexprHistory.length > 0) setShowHistory(true);
-                }}
-                placeholder="demo/publish"
-                disabled={!connected || busy}
-              />
-              <button
-                className="combo_toggle"
-                type="button"
-                onClick={() => setShowHistory((prev) => !prev)}
-                aria-label="Toggle key expression history"
-                disabled={!connected || busy}
+    <section
+      className="min-w-0 space-y-3"
+      aria-label="Message composer"
+      onKeyDown={(event) => {
+        if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && !schemaOpen) {
+          event.preventDefault();
+          if (!event.repeat && !event.nativeEvent.isComposing && canSend) void send();
+        }
+      }}
+    >
+      <KeyExpressionInput
+        value={draft.keyexpr}
+        history={targets}
+        disabled={busy}
+        onChange={(keyexpr) => onDraftChange({ ...draft, keyexpr })}
+        onSelect={(keyexpr) => onDraftChange({ ...draft, keyexpr })}
+      />
+      {validation.keyError && (
+        <p className="text-xs text-destructive" role="alert">
+          {validation.keyError}
+        </p>
+      )}
+      {targetAccessory}
+      <div className="overflow-hidden rounded-md border">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-card px-2 py-1.5">
+          <ToggleGroup
+            value={[draft.encoding]}
+            onValueChange={(values) => {
+              if (values[0]) switchFormat(values[0] as PublishDraft['encoding']);
+            }}
+            className="flex gap-0.5"
+            aria-label="Payload format"
+            disabled={busy}
+          >
+            {publishFormats.map((format) => (
+              <Toggle
+                key={format}
+                value={format}
+                className="rounded-sm border border-transparent px-3 py-1.5 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-pressed:border-border data-pressed:bg-background data-pressed:text-foreground"
               >
-                <span className="combo_icon" aria-hidden="true">
-                  <IconChevronDown />
-                </span>
-              </button>
-              {showHistory ? (
-                <div className="combo_menu" role="listbox">
-                  {keyexprHistory.length === 0 ? (
-                    <div className="combo_empty">No saved keyexprs yet.</div>
-                  ) : (
-                    keyexprHistory.map((entry) => (
-                      <div key={entry} className="combo_option">
-                        <button
-                          className="combo_option_button"
-                          type="button"
-                          role="option"
-                          onClick={() => {
-                            applyHistorySelection(entry);
-                            setShowHistory(false);
-                            suppressHistoryOpenRef.current = true;
-                            inputRef.current?.focus();
-                          }}
-                        >
-                          {entry}
-                        </button>
-                        <button
-                          className="icon-button icon-button--compact icon-button--ghost combo_option_remove"
-                          type="button"
-                          title={`Remove ${entry}`}
-                          aria-label={`Remove ${entry} from history`}
-                          onClick={() => handleRemoveHistory(entry)}
-                        >
-                          <span className="icon-button_icon" aria-hidden="true">
-                            <IconClose />
-                          </span>
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-              ) : null}
-            </div>
-          </label>
-
-          {connected && publishSupport === 'unsupported' ? (
-            <div className="notice notice--info-warning publish_notice">
-              Publishing is not advertised by the current driver. The request may still fail.
-            </div>
-          ) : null}
-
-          {connected && queryableSupport === 'unsupported' ? (
-            <div className="notice notice--info-warning publish_notice">
-              Queryables are not advertised by the current driver. The request may still fail.
-            </div>
-          ) : null}
+                {formatLabel[format]}
+              </Toggle>
+            ))}
+          </ToggleGroup>
+          <div className="flex items-center gap-1">
+            {jsonMode && (
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label="Format JSON"
+                title="Format JSON"
+                disabled={busy || !!validation.payloadError}
+                onClick={() =>
+                  onDraftChange({
+                    ...draft,
+                    payload: JSON.stringify(JSON.parse(draft.payload), null, 2)
+                  })
+                }
+              >
+                <Braces />
+              </Button>
+            )}
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Copy payload"
+              title="Copy payload"
+              onClick={() => {
+                void navigator.clipboard.writeText(draft.payload).then(
+                  () => setFeedback({ error: false, message: 'Payload copied' }),
+                  (error) =>
+                    onToast({ type: 'error', message: 'Copy failed', detail: String(error) })
+                );
+              }}
+            >
+              <Copy />
+            </Button>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Clear payload"
+              title="Clear payload"
+              disabled={busy}
+              onClick={() => onDraftChange({ ...draft, payload: '' })}
+            >
+              <Trash2 />
+            </Button>
+          </div>
         </div>
-
-        <div className="publish_panel-columns">
-          <div className="publish_options">
-            <div className="publish_block">
-              <div className="publish_encoding">
-                <span className="monitor_eyebrow">Encoding</span>
-                <div className="segmented publish_segmented">
-                  <button
-                    className={`segmented_button ${draft.encoding === 'json' ? 'segmented_button--active' : ''}`}
-                    onClick={() => {
-                      const next: PublishDraft = { ...draft, encoding: 'json' };
-                      if (!draft.payload.trim()) next.payload = DEFAULT_PUBLISH_JSON;
-                      onDraftChange(next);
-                    }}
-                    type="button"
-                    disabled={!connected || busy}
-                  >
-                    JSON
-                  </button>
-                  <button
-                    className={`segmented_button ${draft.encoding === 'text' ? 'segmented_button--active' : ''}`}
-                    onClick={() => onDraftChange({ ...draft, encoding: 'text' })}
-                    type="button"
-                    disabled={!connected || busy}
-                  >
-                    Text
-                  </button>
-                  <button
-                    className={`segmented_button ${draft.encoding === 'base64' ? 'segmented_button--active' : ''}`}
-                    onClick={() => onDraftChange({ ...draft, encoding: 'base64' })}
-                    type="button"
-                    disabled={!connected || busy}
-                  >
-                    Base64
-                  </button>
-                  <button
-                    className={`segmented_button ${draft.encoding === 'protobuf' ? 'segmented_button--active' : ''}`}
-                    onClick={() => {
-                      const nextTypeId = draft.protoTypeId ?? protoTypes[0]?.id;
-                      const next: PublishDraft = {
-                        ...draft,
-                        encoding: 'protobuf',
-                        protoTypeId: nextTypeId,
-                        payload: samplePayloadForType(nextTypeId)
-                      };
-                      onDraftChange(next);
-                    }}
-                    type="button"
-                    disabled={!connected || busy || protoTypes.length === 0}
-                  >
-                    Protobuf
-                  </button>
-                </div>
-                <span className="helper publish_encoding-helper">{renderHelper()}</span>
-              </div>
-
-              {draft.encoding === 'protobuf' ? (
-                <label className="field publish_field">
-                  <span>Protobuf type</span>
-                  <select
-                    value={draft.protoTypeId ?? ''}
-                    onChange={(event) => {
-                      const protoTypeId = event.target.value || undefined;
-                      onDraftChange({
-                        ...draft,
-                        protoTypeId,
-                        payload: samplePayloadForType(protoTypeId)
-                      });
-                    }}
-                    disabled={!connected || busy || protoTypes.length === 0}
-                  >
-                    <option value="">Select a message type</option>
-                    {protoTypes.map((type) => (
-                      <option key={type.id} value={type.id}>
-                        {type.label}
-                      </option>
-                    ))}
-                  </select>
-                  {selectedProtoType ? (
-                    <span className="helper">Encoding as {selectedProtoType.name}.</span>
-                  ) : null}
-                </label>
-              ) : null}
-            </div>
+        {draft.encoding === 'protobuf' && (
+          <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
+            <span className="text-xs text-muted-foreground">Message type</span>
+            <Select
+              value={type?.id ?? ''}
+              onValueChange={(protoTypeId) =>
+                onDraftChange({ ...draft, protoTypeId: protoTypeId ?? undefined })
+              }
+              disabled={busy || !protoTypes.length}
+            >
+              <SelectTrigger
+                className="h-8 min-w-0 max-w-full flex-1 rounded-sm font-mono text-xs"
+                aria-label="Protobuf message type"
+              >
+                <SelectValue placeholder="Choose a message type">
+                  {type ? `${type.fullName} · ${type.schemaName}` : undefined}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {protoTypes.map((entry) => (
+                  <SelectItem key={entry.id} value={entry.id}>
+                    {entry.fullName} · {entry.schemaName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {type && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                onClick={() =>
+                  onDraftChange({ ...draft, payload: getProtoSamplePayload(type.id) || '{}' })
+                }
+              >
+                Use example
+              </Button>
+            )}
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => setSchemaOpen(true)}>
+              Add schemas
+            </Button>
           </div>
-
-          <div className="publish_editor">
-            <div className="publish_block publish_block--editor">
-              <div className="publish_editor-header">
-                <div>
-                  <span className="monitor_eyebrow">Payload editor</span>
-                </div>
-                <div className="publish_editor-actions">
-                  <button
-                    className="icon-button icon-button--ghost"
-                    onClick={handleClearPayload}
-                    type="button"
-                    disabled={!connected || busy || !draft.payload}
-                    title="Clear payload"
-                    aria-label="Clear payload"
-                  >
-                    <span className="icon-button_icon" aria-hidden="true">
-                      <IconTrash />
-                    </span>
-                  </button>
-                  <button
-                    className="icon-button icon-button--ghost"
-                    onClick={() => {
-                      void handleCopyPayload();
-                    }}
-                    type="button"
-                    disabled={!draft.payload}
-                    title="Copy payload"
-                    aria-label="Copy payload"
-                  >
-                    <span className="icon-button_icon" aria-hidden="true">
-                      <IconCopy />
-                    </span>
-                  </button>
-                </div>
-              </div>
-
-              <label className="field publish_field publish_editor-field">
-                <textarea
-                  className="publish_editor-textarea"
-                  value={draft.payload}
-                  onChange={(event) => onDraftChange({ ...draft, payload: event.target.value })}
-                  rows={10}
-                  placeholder={
-                    draft.encoding === 'base64'
-                      ? 'aGVsbG8='
-                      : draft.encoding === 'protobuf'
-                        ? '{ "id": "abc123" }'
-                        : 'message'
-                  }
-                  disabled={!connected || busy}
-                />
-              </label>
-
-              <div className="publish_editor-footer">
-                <div className="publish_editor-meta">
-                  <span className="publish_meta-pill">{encodingLabel}</span>
-                  <span className="publish_meta-pill">{payloadLengthLabel}</span>
-                </div>
-                <button
-                  className="button publish_send publish_send--secondary"
-                  onClick={handleDeclareQueryable}
-                  disabled={
-                    !connected ||
-                    busy ||
-                    !draft.keyexpr.trim() ||
-                    (draft.encoding === 'protobuf' && !draft.protoTypeId)
-                  }
-                >
-                  Serve queryable
-                </button>
-                <button
-                  className="button publish_send"
-                  onClick={handlePublish}
-                  disabled={
-                    !connected ||
-                    busy ||
-                    !draft.keyexpr.trim() ||
-                    (draft.encoding === 'protobuf' && !draft.protoTypeId)
-                  }
-                >
-                  <span className="button_icon" aria-hidden="true">
-                    <IconPublish />
-                  </span>{' '}
-                  Send message
-                </button>
-              </div>
-            </div>
-          </div>
+        )}
+        <Textarea
+          ref={editorRef}
+          style={{ height: editorHeight }}
+          wrap="off"
+          aria-label="Payload editor"
+          aria-invalid={!!validation.payloadError}
+          aria-describedby="publish-validation"
+          value={draft.payload}
+          onChange={(event) => onDraftChange({ ...draft, payload: event.target.value })}
+          disabled={busy}
+          spellCheck={false}
+          className="block min-h-40 max-h-300 w-full resize-y rounded-none border-0 bg-background p-4 font-mono text-[13px] leading-relaxed shadow-none field-sizing-fixed focus-visible:ring-inset"
+        />
+        <div className="flex items-start justify-between gap-3 border-t bg-card px-3 py-2 text-xs text-muted-foreground">
+          <span
+            id="publish-validation"
+            className={
+              validation.payloadError ? 'text-destructive break-words' : 'flex items-center gap-1.5'
+            }
+          >
+            {validation.payloadError || (
+              <>
+                <Check className="size-3.5" />
+                {jsonMode
+                  ? `Valid ${formatLabel[draft.encoding]}`
+                  : `${formatLabel[draft.encoding]} payload`}
+              </>
+            )}
+          </span>
+          <span className="shrink-0 tabular-nums">
+            {draft.payload.length.toLocaleString()} characters
+          </span>
         </div>
       </div>
+      <details className="border-b pb-2 text-xs">
+        <summary className="w-fit cursor-pointer py-1 text-muted-foreground hover:text-foreground">
+          Options{' '}
+          <span className="ml-2">· {draft.wireEncoding?.trim() || 'Automatic encoding'}</span>
+        </summary>
+        <div className="flex flex-wrap items-end gap-3 py-2">
+          <label className="min-w-56 flex-1 space-y-1 text-muted-foreground">
+            Wire encoding
+            <Input
+              className="h-8 rounded-sm font-mono text-xs"
+              value={draft.wireEncoding || ''}
+              placeholder={defaultWireEncoding[draft.encoding]}
+              disabled={busy}
+              onChange={(event) => onDraftChange({ ...draft, wireEncoding: event.target.value })}
+            />
+          </label>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!connected || busy || !validation.valid || queryableSupport === 'unsupported'}
+            onClick={() => void send(true)}
+          >
+            Serve queryable
+          </Button>
+        </div>
+        <p className="pb-1 text-muted-foreground">
+          Wire encoding applies to sent messages. Queryable replies use the selected format.
+        </p>
+      </details>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span className="text-xs text-muted-foreground">
+          {!connected
+            ? 'Connect to send messages.'
+            : publishSupport === 'unsupported'
+              ? 'Publishing is unavailable on this connection.'
+              : 'Resize the editor from its bottom-right corner.'}
+        </span>
+        <Button
+          size="sm"
+          disabled={!canSend}
+          title="Send message (Ctrl/Cmd+Enter)"
+          onClick={() => void send()}
+        >
+          {busy ? <LoaderCircle className="animate-spin" /> : <Send />} Send message{' '}
+          <kbd className="ml-2 text-[10px] opacity-65">
+            {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+Enter
+          </kbd>
+        </Button>
+      </div>
+      {feedback && (
+        <p
+          role={feedback.error ? 'alert' : 'status'}
+          className={`text-xs break-words whitespace-pre-wrap ${feedback.error ? 'text-destructive' : 'text-muted-foreground'}`}
+        >
+          {feedback.message}
+        </p>
+      )}
+      <details className="border-t pt-2 text-xs">
+        <summary className="w-fit cursor-pointer py-1 text-muted-foreground hover:text-foreground">
+          Recent publishes · {entries.length}
+        </summary>
+        {entries.length === 0 ? (
+          <p className="py-2 text-muted-foreground">Sent messages will appear here for reuse.</p>
+        ) : (
+          <ul className="max-h-64 overflow-auto py-1">
+            {entries.map((entry) => (
+              <li key={entry.keyexpr}>
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="grid w-full gap-1 border-b px-2 py-2 text-left hover:bg-muted focus-visible:outline-ring"
+                  onClick={() => {
+                    onDraftChange({ ...entry });
+                    setFeedback(null);
+                  }}
+                  title="Restore draft without sending"
+                >
+                  <span className="flex min-w-0 flex-wrap justify-between gap-2">
+                    <span className="truncate font-mono">{entry.keyexpr}</span>
+                    <span className="text-muted-foreground">
+                      {formatLabel[entry.encoding]} ·{' '}
+                      {entry.publishedAt
+                        ? new Date(entry.publishedAt).toLocaleTimeString()
+                        : 'Saved draft'}
+                    </span>
+                  </span>
+                  <span className="truncate font-mono text-muted-foreground">
+                    {entry.payload.slice(0, 120) || '(empty payload)'}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </details>
+      <ProtobufSchemaDialog open={schemaOpen} onOpenChange={setSchemaOpen} onAdd={onAddSchema} />
     </section>
   );
 };
-
 export default PublishPanel;

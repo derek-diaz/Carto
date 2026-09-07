@@ -1,68 +1,58 @@
+// Synchronous rules shared by browser and server; the SDK also validates declarations.
 export const getKeyexprError = (keyexpr: string): string | null => {
-  const trimmed = keyexpr.trim();
-  if (!trimmed) {
-    return 'Key expression is required.';
-  }
-  if (trimmed.includes('\\')) {
-    return 'Key expression cannot contain backslashes. Use "/" separators.';
-  }
-
-  const segments = trimmed.split('/');
-  for (const segment of segments) {
-    if (!segment) continue;
-    if (segment.includes('*') && segment !== '*' && segment !== '**') {
-      return 'Wildcards must be standalone "*" or "**" path segments.';
+  const value = keyexpr.trim();
+  if (!value) return 'Key expression is required.';
+  if (/[?#\u0000]/u.test(value))
+    return 'Key expressions cannot contain "?", "#", or null characters.';
+  const chunks = value.split('/');
+  if (chunks.some((chunk) => !chunk))
+    return 'Remove leading, trailing, or repeated "/" separators.';
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunk = chunks[index];
+    if (chunk === '**' && (chunks[index + 1] === '**' || chunks[index + 1] === '*')) {
+      return 'Use canonical wildcards: replace "**/**" with "**" and "**/*" with "*/**".';
     }
+    if (chunk === '*' || chunk === '**') continue;
+    if (chunk === '$*' || chunk.includes('$*$*'))
+      return 'Use "*" for a whole chunk and collapse adjacent "$*" wildcards.';
+    if (/[$*]/u.test(chunk.replaceAll('$*', '')))
+      return 'Use "*" or "**" for a whole chunk, or "$*" within a name (sensor$*).';
   }
-
   return null;
 };
 
-const splitSegments = (value: string): string[] => {
-  if (!value) return [];
-  return value.split('/').filter((segment) => segment.length > 0);
-};
-
-const matchesSegments = (
-  patternSegments: string[],
-  keySegments: string[],
-  patternIndex: number,
-  keyIndex: number
-): boolean => {
-  if (patternIndex >= patternSegments.length) {
-    return keyIndex >= keySegments.length;
+const chunkMatches = (pattern: string, key: string): boolean => {
+  if (key.startsWith('@') || pattern.startsWith('@')) return pattern === key;
+  if (pattern === '*') return true;
+  const parts = pattern.split('$*');
+  if (parts.length === 1) return pattern === key;
+  if (!key.startsWith(parts[0])) return false;
+  let position = parts[0].length;
+  for (const part of parts.slice(1, -1)) {
+    const found = key.indexOf(part, position);
+    if (found < 0) return false;
+    position = found + part.length;
   }
-
-  const segment = patternSegments[patternIndex];
-  if (segment === '**') {
-    if (patternIndex === patternSegments.length - 1) {
-      return true;
-    }
-    for (let nextKeyIndex = keyIndex; nextKeyIndex <= keySegments.length; nextKeyIndex += 1) {
-      if (matchesSegments(patternSegments, keySegments, patternIndex + 1, nextKeyIndex)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  if (keyIndex >= keySegments.length) {
-    return false;
-  }
-
-  if (segment === '*') {
-    return matchesSegments(patternSegments, keySegments, patternIndex + 1, keyIndex + 1);
-  }
-
-  if (segment !== keySegments[keyIndex]) {
-    return false;
-  }
-
-  return matchesSegments(patternSegments, keySegments, patternIndex + 1, keyIndex + 1);
+  const suffix = parts[parts.length - 1];
+  return key.endsWith(suffix) && key.length - suffix.length >= position;
 };
 
 export const keyexprMatches = (pattern: string, key: string): boolean => {
-  const patternSegments = splitSegments(pattern.trim());
-  const keySegments = splitSegments(key.trim());
-  return matchesSegments(patternSegments, keySegments, 0, 0);
+  if (getKeyexprError(pattern) || getKeyexprError(key) || /[$*]/u.test(key)) return false;
+  const patterns = pattern.trim().split('/');
+  const keys = key.trim().split('/');
+  let previous = new Array<boolean>(keys.length + 1).fill(false);
+  previous[0] = true;
+  for (const chunk of patterns) {
+    const next = new Array<boolean>(keys.length + 1).fill(false);
+    next[0] = chunk === '**' && previous[0];
+    for (let index = 1; index <= keys.length; index += 1) {
+      next[index] =
+        chunk === '**'
+          ? previous[index] || (next[index - 1] && !keys[index - 1].startsWith('@'))
+          : previous[index - 1] && chunkMatches(chunk, keys[index - 1]);
+    }
+    previous = next;
+  }
+  return previous[keys.length];
 };

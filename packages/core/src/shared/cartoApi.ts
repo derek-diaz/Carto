@@ -1,5 +1,7 @@
 import type {
   CartoMessagePayload,
+  DiscoveryParams,
+  DiscoverySnapshot,
   CartoMessage,
   ConnectionStatus,
   ConnectParams,
@@ -20,6 +22,9 @@ import type {
 } from './types';
 
 export type CartoApi = {
+  startDiscovery: (params: DiscoveryParams) => Promise<DiscoverySnapshot>;
+  stopDiscovery: () => Promise<DiscoverySnapshot>;
+  getDiscovery: () => Promise<DiscoverySnapshot>;
   connect: (params: ConnectParams) => Promise<void>;
   testConnection: (params: ConnectionTestParams) => Promise<ConnectionTestResult>;
   disconnect: () => Promise<void>;

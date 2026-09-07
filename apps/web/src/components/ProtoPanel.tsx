@@ -1,11 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
+import { FileCode2, Plus, Trash2 } from 'lucide-react';
+import { Button } from './ui/button';
+import { ProtobufSchemaDialog } from './ProtobufSchemaDialog';
+import type { AddProtoSchemas, ProtoSchema } from '../utils/proto';
 import type { LogInput, ToastInput } from '../utils/notifications';
-import type { ProtoSchema } from '../utils/proto';
-import { IconTrash } from './Icons';
 
 type ProtoPanelProps = {
   schemas: ProtoSchema[];
-  onAddSchema: (name: string, source: string) => boolean;
+  onAddSchema: AddProtoSchemas;
   onRemoveSchema: (id: string) => void;
   onLog: (entry: LogInput) => void;
   onToast: (toast: ToastInput) => void;
@@ -13,181 +15,81 @@ type ProtoPanelProps = {
   showCountBadge?: boolean;
 };
 
-const MAX_PREVIEW_LINES = 6;
-
-const ProtoPanel = ({
+export default function ProtoPanel({
   schemas,
   onAddSchema,
   onRemoveSchema,
-  onLog,
-  onToast,
   className,
   showCountBadge = true
-}: ProtoPanelProps) => {
-  const [schemaName, setSchemaName] = useState('');
-  const [schemaSource, setSchemaSource] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [dragActive, setDragActive] = useState(false);
-
-  const preview = useMemo(() => {
-    if (!schemaSource.trim()) return '';
-    const lines = schemaSource.trim().split(/\r?\n/);
-    return lines.slice(0, MAX_PREVIEW_LINES).join('\n');
-  }, [schemaSource]);
-
-  const handleFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    const file = files[0];
-    if (!file) return;
-    if (!file.name.endsWith('.proto')) {
-      setError('Please drop a .proto file.');
-      onToast({ type: 'warn', message: 'Unsupported file', detail: file.name });
-      return;
-    }
-    try {
-      const text = await file.text();
-      const name = file.name.replace(/\.proto$/i, '');
-      setSchemaName(name);
-      setSchemaSource(text);
-      setError(null);
-      onLog({ level: 'info', source: 'protobuf', message: `Loaded ${file.name}.` });
-    } catch (readError) {
-      const message = readError instanceof Error ? readError.message : String(readError);
-      setError(message);
-      onToast({ type: 'error', message: 'Failed to read .proto', detail: message });
-      onLog({ level: 'error', source: 'protobuf', message });
-    }
-  };
-
-  const handleAddSchema = () => {
-    const trimmedName = schemaName.trim();
-    const trimmedSource = schemaSource.trim();
-    if (!trimmedName) {
-      setError('Schema name is required.');
-      return;
-    }
-    if (!trimmedSource) {
-      setError('Proto source is required.');
-      return;
-    }
-
-    const ok = onAddSchema(trimmedName, trimmedSource);
-    if (ok) {
-      setSchemaName('');
-      setSchemaSource('');
-      setError(null);
-    } else {
-      setError('Failed to parse proto schema.');
-    }
-  };
-
+}: ProtoPanelProps) {
+  const [open, setOpen] = useState(false);
   return (
     <section className={`panel ${className ?? ''}`.trim()}>
-      <div className="panel_header">
-        <h2>Protobuf</h2>
-        {showCountBadge ? <span className="badge badge--idle">{schemas.length} schemas</span> : null}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold">
+            Protobuf schemas{' '}
+            {showCountBadge && (
+              <span className="ml-2 text-sm font-normal text-muted-foreground">
+                {schemas.length}
+              </span>
+            )}
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Shared definitions are available to every payload schema.
+          </p>
+        </div>
+        <Button onClick={() => setOpen(true)}>
+          <Plus /> Add schemas
+        </Button>
       </div>
-
-      <div
-        className={`proto_drop ${dragActive ? 'proto_drop--active' : ''}`}
-        onDragOver={(event) => {
-          event.preventDefault();
-          setDragActive(true);
-        }}
-        onDragLeave={() => setDragActive(false)}
-        onDrop={async (event) => {
-          event.preventDefault();
-          setDragActive(false);
-          const files = event.dataTransfer?.files ?? null;
-          await handleFiles(files);
-        }}
-      >
-        <div className="proto_drop-title">Drop a .proto file here</div>
-        <div className="proto_drop-subtitle">Carto will discover its message types automatically.</div>
-        <label className="button button--ghost proto_file-button">
-          Browse files
-          <input
-            type="file"
-            accept=".proto"
-            onChange={async (event) => {
-              const files = event.target.files;
-              await handleFiles(files);
-            }}
-          />
-        </label>
-      </div>
-
-      <label className="field">
-        <span>Schema name</span>
-        <input
-          type="text"
-          value={schemaName}
-          onChange={(event) => setSchemaName(event.target.value)}
-          placeholder="robot_messages"
-        />
-      </label>
-
-      <label className="field">
-        <span>Paste .proto text</span>
-        <textarea
-          value={schemaSource}
-          onChange={(event) => setSchemaSource(event.target.value)}
-          rows={6}
-          placeholder={`syntax = "proto3";
-package example;
-message Ping { string id = 1; }`}
-        />
-      </label>
-
-      {preview ? <pre className="proto_preview">{preview}</pre> : null}
-
-      <div className="panel_actions">
-        <button className="button" type="button" onClick={handleAddSchema}>
-          Save schema
-        </button>
-      </div>
-
-      {error ? <div className="notice notice--error">{error}</div> : null}
-
-      <div className="proto_list">
+      <div className="mt-5 space-y-3">
         {schemas.length === 0 ? (
-          <div className="empty">No schemas loaded yet.</div>
+          <p className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">
+            Add your common definitions and payload files together to start decoding.
+          </p>
         ) : (
           schemas.map((schema) => (
-            <div key={schema.id} className="proto_item">
-              <div className="proto_item-head">
-                <div>
-                  <div className="proto_item-title">{schema.name}</div>
-                  <div className="proto_item-subtitle">{schema.types.length} message types</div>
+            <div key={schema.id} className="rounded-xl border bg-card p-4">
+              <div className="flex items-start gap-3">
+                <FileCode2 className="mt-1 size-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  <h3 className="break-all text-sm font-medium">{schema.name}</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {schema.types.length} message types
+                  </p>
                 </div>
-                <button
-                  className="button button--ghost button--compact"
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Remove ${schema.name}`}
                   onClick={() => onRemoveSchema(schema.id)}
                 >
-                  <span className="button_icon" aria-hidden="true">
-                    <IconTrash />
-                  </span>{' '}Remove
-                </button>
+                  <Trash2 />
+                </Button>
               </div>
-              <div className="proto_types">
-                {schema.types.slice(0, 12).map((type) => (
-                  <span key={type.id} className="proto_type">
-                    {type.name}
-                  </span>
-                ))}
-                {schema.types.length > 12 ? (
-                  <span className="proto_type proto_type--more">
-                    +{schema.types.length - 12} more
-                  </span>
-                ) : null}
-              </div>
+              {schema.types.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {schema.types.slice(0, 12).map((type) => (
+                    <code
+                      key={type.id}
+                      className="max-w-full break-all rounded-md bg-muted px-2 py-1 text-xs"
+                    >
+                      {type.name}
+                    </code>
+                  ))}
+                  {schema.types.length > 12 && (
+                    <span className="text-xs text-muted-foreground">
+                      +{schema.types.length - 12} more
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           ))
         )}
       </div>
+      <ProtobufSchemaDialog open={open} onOpenChange={setOpen} onAdd={onAddSchema} />
     </section>
   );
-};
-
-export default ProtoPanel;
+}
